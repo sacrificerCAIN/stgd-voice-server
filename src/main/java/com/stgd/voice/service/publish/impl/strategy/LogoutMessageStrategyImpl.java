@@ -19,6 +19,6 @@ public class LogoutMessageStrategyImpl implements MessagePublishStrategy {
 		room.removeUser(ctx.channel().id());
 		connectManager.removeUser(ctx.channel().id());
 		connectManager.removeClient(ctx);
-		ctx.writeAndFlush(1 + "\n");
+		connectManager.publishOne(ctx, 1 + "\n");
 	}
 }

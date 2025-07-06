@@ -16,6 +16,6 @@ public class ToAllMessageStrategyImpl implements MessagePublishStrategy {
 	@Override
 	public void handleMessage(ChannelHandlerContext ctx, Message message) {
 		connectManager.publishAll(message.getPayload());
-		ctx.writeAndFlush(1 + "\n");
+		connectManager.publishOne(ctx, 1 + "\n");
 	}
 }

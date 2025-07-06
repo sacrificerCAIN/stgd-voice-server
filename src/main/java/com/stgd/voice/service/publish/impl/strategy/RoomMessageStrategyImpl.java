@@ -23,6 +23,6 @@ public class RoomMessageStrategyImpl implements MessagePublishStrategy {
 
 		Set<ChannelId> channelIdSet = connectManager.getChannelIdSetByChannelIdStringSet(room.getUserChannelIdSet());
 		connectManager.publishSet(channelIdSet, message.getPayload());
-		ctx.writeAndFlush(1 + "\n");
+		connectManager.publishOne(ctx, 1 + "\n");
 	}
 }

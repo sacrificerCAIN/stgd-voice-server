@@ -24,6 +24,6 @@ public class LoginMessageStrategyImpl implements MessagePublishStrategy {
 		}
 		user.setName(message.getUserName());
 		connectManager.addUser(user);
-		ctx.writeAndFlush(JSON.toJSONString(user) + "\n");
+		connectManager.publishOne(ctx, JSON.toJSONString(user) + "\n");
 	}
 }

@@ -19,6 +19,6 @@ public class PrivateMessageStrategyImpl implements MessagePublishStrategy {
 		ChannelId SourceUserId = ctx.channel().id();
 		String sourceUserIdString = SourceUserId.asLongText();
 		connectManager.publishOne(sourceUserIdString, message.getTargetUserId(), message.getPayload());
-		ctx.writeAndFlush(1 + "\n");
+		connectManager.publishOne(ctx, 1 + "\n");
 	}
 }

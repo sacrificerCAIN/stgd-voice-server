@@ -76,9 +76,24 @@ public class ConnectManager {
 		return roomMap.get(id);
 	}
 
+	public void publishOne(ChannelHandlerContext ctx, String s){
+		ctx.channel().writeAndFlush("[服务器]对你说：" + s + "\n");
+	}
+
+	public void publishOne(String targetChannelIdString, String s){
+		ChannelId channelId = channelWithStringIdMap.get(targetChannelIdString);
+		Channel channel;
+		try {
+			channel = channelGroup.find(channelId);
+		}catch (NullPointerException e){
+			return;
+		}
+		channel.writeAndFlush("[服务器]对你说：" + s + "\n");
+	}
+
 	public void publishOne(String sourceChannelIdString, String targetChannelIdString, String s){
 		ChannelId channelId = channelWithStringIdMap.get(targetChannelIdString);
-		Channel channel = null;
+		Channel channel;
 		try {
 			channel = channelGroup.find(channelId);
 		}catch (NullPointerException e){
