@@ -3,7 +3,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.stgd.voice</groupId>
-    <artifactId>StgdVoice</artifactId>
+    <artifactId>stgd-voice-server</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>StgdVoice</name>
     <description>StgdVoice</description>
@@ -40,6 +40,20 @@
             <artifactId>fastjson</artifactId>
             <version>1.2.83</version>
         </dependency>
+
+        <!-- sqlite -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.36.0.3</version>
+        </dependency>
+
+        <!-- mybatis -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-boot-starter</artifactId>
+            <version>3.5.3.1</version>
+        </dependency>
     </dependencies>
     <dependencyManagement>
         <dependencies>
@@ -70,7 +84,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring-boot.version}</version>
                 <configuration>
-                    <mainClass>com.stgd.voice.stgdvoice.StgdVoiceApplication</mainClass>
+                    <mainClass>com.stgd.voice.StgdVoiceApplication</mainClass>
                     <skip>true</skip>
                 </configuration>
                 <executions>
