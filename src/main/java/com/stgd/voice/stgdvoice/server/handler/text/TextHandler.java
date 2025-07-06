@@ -60,7 +60,7 @@ public class TextHandler extends SimpleChannelInboundHandler<String> {
 			Message message = JSON.parseObject(messageString, Message.class);
 			messageStrategyFactory.getStrategyByMessage(message.getType()).handleMessage(ctx, message);
 		}catch (JSONException jsonException){
-			connectManager.publishOne(channelId.asLongText(), "你在说啥我听不懂\n");
+			connectManager.publishOne("服务器" ,channelId.asLongText(), "你在说啥我听不懂\n");
 		}
 		catch (Exception e){
 			e.printStackTrace();

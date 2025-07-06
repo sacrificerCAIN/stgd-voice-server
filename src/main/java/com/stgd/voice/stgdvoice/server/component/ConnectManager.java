@@ -41,7 +41,8 @@ public class ConnectManager {
 		ctx.channel().close();
 	}
 
-	public Channel getCtxByChannelId(ChannelId channelId){
+	public Channel getChannelByChannelId(String channelIdString){
+		ChannelId channelId = channelWithStringIdMap.get(channelIdString);
 		return channelGroup.find(channelId);
 	}
 
@@ -61,8 +62,8 @@ public class ConnectManager {
 		userMap.remove(id.asLongText());
 	}
 
-	public User findUserById(ChannelId id){
-		return userMap.get(id.asLongText());
+	public User findUserByIdString(String channelIdString){
+		return userMap.get(channelIdString);
 	}
 
 	public void addRoom(Room room){
@@ -77,10 +78,18 @@ public class ConnectManager {
 		return roomMap.get(id);
 	}
 
-	public void publishOne(String channelIdString, String s){
-		ChannelId channelId = channelWithStringIdMap.get(channelIdString);
-		Channel channel = channelGroup.find(channelId);
-		channel.writeAndFlush(s + "\n");
+	public void publishOne(String sourceChannelIdString, String targetChannelIdString, String s){
+		ChannelId channelId = channelWithStringIdMap.get(targetChannelIdString);
+		Channel channel = null;
+		try {
+			channel = channelGroup.find(channelId);
+		}catch (NullPointerException e){
+			Channel sourceChannel = getChannelByChannelId(sourceChannelIdString);
+			sourceChannel.writeAndFlush("[服务器]对你说：该用户已下线\n");
+			return;
+		}
+		User sourceUser = findUserByIdString(sourceChannelIdString);
+		channel.writeAndFlush("[" + sourceUser.getName() + "]对你说：" + s + "\n");
 	}
 
 	public void publishAll(String s){
