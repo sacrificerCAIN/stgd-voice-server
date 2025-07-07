@@ -1,5 +1,6 @@
 package com.stgd.voice.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.netty.channel.ChannelId;
 import lombok.Data;
@@ -17,6 +18,7 @@ public class Room {
 
 	private String name;
 
+	@TableField(exist = false)
 	private Set<String> userChannelIdSet = new CopyOnWriteArraySet<>();
 
 	public void addUser(ChannelId channelId){

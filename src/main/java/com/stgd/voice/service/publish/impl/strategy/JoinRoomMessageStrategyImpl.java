@@ -24,6 +24,7 @@ public class JoinRoomMessageStrategyImpl implements MessagePublishStrategy {
 			return;
 		}
 		room.addUser(ctx.channel().id());
+		connectManager.addRoom(room);
 		connectManager.publishOne(ctx, 1 + "\n");
 	}
 }

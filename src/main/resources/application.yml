@@ -1,5 +1,9 @@
 server:
-  port:8080
+  port: 8080
+  tcp-port: 6324
+  udp-port: 6324
+
+
 
 # Sqlite
 spring:

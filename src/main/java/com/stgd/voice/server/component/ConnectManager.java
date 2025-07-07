@@ -2,17 +2,21 @@ package com.stgd.voice.server.component;
 
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.entity.User;
+import com.stgd.voice.mapper.RoomMapper;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelId;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.util.concurrent.GlobalEventExecutor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * @author Hzzz
@@ -28,6 +32,19 @@ public class ConnectManager {
 
 	private static final ConcurrentHashMap<Integer, Room> roomMap = new ConcurrentHashMap<>();
 
+	@Autowired
+	private RoomMapper roomMapper;
+
+	public void init(){
+		System.out.println("服务器初始化...");
+		System.out.println("正在初始化房间...");
+		//加载所有房间到内存
+		List<Room> roomList = roomMapper.selectAll();
+		roomList.forEach(room -> roomMap.put(room.getId(), room));
+		System.out.println("房间初始化完成");
+
+		System.out.println("服务器初始化完成");
+	}
 	public void addClient(ChannelHandlerContext ctx){
 		channelGroup.add(ctx.channel());
 		channelWithStringIdMap.put(ctx.channel().id().asLongText(), ctx.channel().id());
@@ -101,8 +118,16 @@ public class ConnectManager {
 			sourceChannel.writeAndFlush("[服务器]对你说：该用户已下线\n");
 			return;
 		}
-		User sourceUser = findUserByIdString(sourceChannelIdString);
-		channel.writeAndFlush("[" + sourceUser.getName() + "]对你说：" + s + "\n");
+
+		String sourceUserName;
+		if (sourceChannelIdString == null){
+			sourceUserName = "服务器";
+		}else{
+			User sourceUser = findUserByIdString(sourceChannelIdString);
+			sourceUserName =  sourceUser.getName();
+		}
+
+		channel.writeAndFlush("[" + sourceUserName + "]对你说：" + s + "\n");
 	}
 
 	public void publishAll(String s){

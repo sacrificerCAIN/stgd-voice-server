@@ -1,6 +1,126 @@
-<html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录界面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+        .login-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 300px;
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #message {
+            margin-top: 15px;
+            text-align: center;
+            color: red;
+        }
+    </style>
+</head>
 <body>
-<h1>hello word!!!</h1>
-<p>this is a html page</p>
+<div class="login-container">
+    <h2>stgd-voice</h2>
+    <form id="loginForm">
+        <div class="input-group">
+            <label for="username">用户名</label>
+            <input type="text" id="username" name="username" required>
+        </div>
+        <div class="input-group">
+            <label for="password">密码</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <button type="button" onclick="submitLogin()">登录</button>
+        <div id="message"></div>
+    </form>
+</div>
+
+<script>
+    function submitLogin() {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const messageEl = document.getElementById('message');
+
+        // 简单的前端验证
+        if (!username || !password) {
+            messageEl.textContent = '用户名和密码不能为空';
+            return;
+        }
+
+        // 创建请求数据对象
+        const adminUser = {
+            username: username,
+            password: password
+        };
+
+        // 发送AJAX请求
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'http://localhost:8080/adminUser/login', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    const response = xhr.responseText;
+                    if (response == 1) {
+                        messageEl.textContent = '登录成功';
+                        messageEl.style.color = 'green';
+                        // 这里可以添加登录成功后的跳转逻辑
+                        window.location.href = '/dashboard.html';
+                    } else {
+                        messageEl.textContent = '用户名或密码错误';
+                        messageEl.style.color = 'red';
+                    }
+                } else {
+                    messageEl.textContent = '登录失败，请稍后再试';
+                    messageEl.style.color = 'red';
+                    console.error('Error:', xhr.status, xhr.statusText);
+                }
+            }
+        };
+
+        xhr.send(JSON.stringify(adminUser));
+    }
+</script>
 </body>
 </html>

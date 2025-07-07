@@ -20,7 +20,6 @@ public class RoomMessageStrategyImpl implements MessagePublishStrategy {
 	@Override
 	public void handleMessage(ChannelHandlerContext ctx, Message message) {
 		Room room = connectManager.findRoomById(message.getRoomId());
-
 		Set<ChannelId> channelIdSet = connectManager.getChannelIdSetByChannelIdStringSet(room.getUserChannelIdSet());
 		connectManager.publishSet(channelIdSet, message.getPayload());
 		connectManager.publishOne(ctx, 1 + "\n");

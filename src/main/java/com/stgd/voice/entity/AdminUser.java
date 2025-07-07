@@ -9,7 +9,7 @@ import lombok.Data;
  * 3. @time: 2025/7/6
  */
 @Data
-@TableName("admin_id")
+@TableName("admin_user")
 public class AdminUser {
     private Integer id;
 

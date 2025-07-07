@@ -1,5 +1,6 @@
 package com.stgd.voice.server;
 
+import com.stgd.voice.config.ServerConfig;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.server.handler.text.TextHandler;
 import com.stgd.voice.server.handler.voice.VoiceHandler;
@@ -32,6 +33,9 @@ public class NettyMain {
 	@Autowired
 	private MessageStrategyFactory messageStrategyFactory;
 
+	@Autowired
+	private ServerConfig serverConfig;
+
 	public void start() {
 		EventLoopGroup bossGroup = new NioEventLoopGroup(1);
 		EventLoopGroup workerGroup = new NioEventLoopGroup();
@@ -47,8 +51,7 @@ public class NettyMain {
 							ch.pipeline().addLast(new TextHandler(connectManager, messageStrategyFactory));
 						}
 					});
-			ChannelFuture tcpFuture = tcpBootstrap.bind(6324).sync();
-			System.out.println("TCP 服务器已启动，监听端口 6324");
+			ChannelFuture tcpFuture = tcpBootstrap.bind(serverConfig.getTcpPort()).sync();
 
 			// UDP 服务器设置
 			EventLoopGroup udpGroup = new NioEventLoopGroup();
@@ -62,8 +65,10 @@ public class NettyMain {
 								ch.pipeline().addLast(new VoiceHandler());
 							}
 						});
-				ChannelFuture udpFuture = udpBootstrap.bind(6324).sync();
-				System.out.println("UDP 服务器已启动，监听端口 6324");
+				ChannelFuture udpFuture = udpBootstrap.bind(serverConfig.getUdpPort()).sync();
+
+				connectManager.init();
+				System.out.println("stgd-voice启动完成");
 
 				// 等待两个服务器关闭
 				tcpFuture.channel().closeFuture().sync();
@@ -78,4 +83,5 @@ public class NettyMain {
 			workerGroup.shutdownGracefully();
 		}
 	}
+
 }
