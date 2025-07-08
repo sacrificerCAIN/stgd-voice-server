@@ -75,51 +75,78 @@
     </form>
 </div>
 
+<!-- 引入 crypto-js 库用于SHA256加密 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
 <script>
-    function submitLogin() {
+    // 检查是否已有会话
+    checkSession();
+
+    async function sha256(message) {
+        const hash = CryptoJS.SHA256(message);
+        return hash.toString(CryptoJS.enc.Hex);
+    }
+
+    async function submitLogin() {
         const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
         const messageEl = document.getElementById('message');
 
-        // 简单的前端验证
         if (!username || !password) {
             messageEl.textContent = '用户名和密码不能为空';
             return;
         }
 
-        // 创建请求数据对象
-        const adminUser = {
-            username: username,
-            password: password
-        };
+        try {
+            const hashedPassword = await sha256(password);
 
-        // 发送AJAX请求
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'http://localhost:8080/adminUser/login', true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
+            const response = await fetch('http://localhost:8080/adminUser/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include', // 包含cookie
+                body: JSON.stringify({
+                    username: username,
+                    password: hashedPassword
+                })
+            });
 
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === 4) {
-                if (xhr.status === 200) {
-                    const response = xhr.responseText;
-                    if (response == 1) {
-                        messageEl.textContent = '登录成功';
-                        messageEl.style.color = 'green';
-                        // 这里可以添加登录成功后的跳转逻辑
-                        window.location.href = '/dashboard.html';
-                    } else {
-                        messageEl.textContent = '用户名或密码错误';
-                        messageEl.style.color = 'red';
-                    }
-                } else {
-                    messageEl.textContent = '登录失败，请稍后再试';
-                    messageEl.style.color = 'red';
-                    console.error('Error:', xhr.status, xhr.statusText);
-                }
+            const result = await response.json();
+
+            if (result == 1) {
+                messageEl.textContent = '登录成功';
+                messageEl.style.color = 'green';
+                // 登录成功后跳转
+                window.location.href = '/dashboard.html';
+            } else {
+                messageEl.textContent = result.message || '用户名或密码错误';
+                messageEl.style.color = 'red';
             }
-        };
+        } catch (error) {
+            messageEl.textContent = '登录过程中出错';
+            messageEl.style.color = 'red';
+            console.error('登录错误:', error);
+        }
+    }
 
-        xhr.send(JSON.stringify(adminUser));
+    // 检查会话状态
+    async function checkSession() {
+        try {
+            const response = await fetch('http://localhost:8080/adminUser/checkSession', {
+                method: 'GET',
+                credentials: 'include' // 包含cookie
+            });
+
+            const result = await response.json();
+
+            if (result.isAuthenticated) {
+                // 如果已有有效会话，直接跳转到dashboard
+                window.location.href = '/dashboard.html';
+            }
+        } catch (error) {
+            console.error('检查会话错误:', error);
+        }
     }
 </script>
 </body>

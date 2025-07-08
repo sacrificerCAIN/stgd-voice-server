@@ -6,9 +6,9 @@
         *
         from admin_user
     </select>
-    <select id="login" resultType="java.lang.Integer">
+    <select id="login" resultType="com.stgd.voice.entity.AdminUser">
         select
-        count(*)
+        *
         from admin_user
         where username = #{username}
         and password = #{password}

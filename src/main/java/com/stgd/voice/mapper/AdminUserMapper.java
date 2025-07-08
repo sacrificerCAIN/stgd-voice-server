@@ -15,5 +15,5 @@ import java.util.List;
 public interface AdminUserMapper extends BaseMapper<AdminUser>{
 	List<AdminUser> selectAll();
 
-	Integer login(AdminUser adminUser);
+	AdminUser login(AdminUser adminUser);
 }

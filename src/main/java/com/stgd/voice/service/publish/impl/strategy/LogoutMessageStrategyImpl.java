@@ -15,10 +15,12 @@ public class LogoutMessageStrategyImpl implements MessagePublishStrategy {
 	private ConnectManager connectManager;
 	@Override
 	public void handleMessage(ChannelHandlerContext ctx, Message message) {
-		Room room = connectManager.findRoomById(message.getRoomId());
-		room.removeUser(ctx.channel().id());
+		if (message.getRoomId() != null){
+			Room room = connectManager.findRoomById(message.getRoomId());
+			room.removeUser(ctx.channel().id());
+		}
 		connectManager.removeUser(ctx.channel().id());
-		connectManager.removeClient(ctx);
 		connectManager.publishOne(ctx, 1 + "\n");
+		connectManager.removeClient(ctx);
 	}
 }

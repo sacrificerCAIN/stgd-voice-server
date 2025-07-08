@@ -68,7 +68,7 @@ public class NettyMain {
 				ChannelFuture udpFuture = udpBootstrap.bind(serverConfig.getUdpPort()).sync();
 
 				connectManager.init();
-				System.out.println("stgd-voice启动完成");
+				System.out.println("项目启动成功");
 
 				// 等待两个服务器关闭
 				tcpFuture.channel().closeFuture().sync();

@@ -35,6 +35,10 @@ public class Message {
 	 */
 	private String targetUserId;
 	/**
+	 * 私聊对象id
+	 */
+	private Integer targetRoomId;
+	/**
 	 * 消息载荷
 	 */
 	private String payload;

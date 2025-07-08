@@ -18,14 +18,20 @@ public class Room {
 
 	private String name;
 
+	private Integer userNum;
+
 	@TableField(exist = false)
 	private Set<String> userChannelIdSet = new CopyOnWriteArraySet<>();
 
 	public void addUser(ChannelId channelId){
-		this.userChannelIdSet.add(channelId.asLongText());
+		if (this.userChannelIdSet.contains(channelId.asLongText())){
+			userNum++;
+		}
 	}
 
 	public void removeUser(ChannelId channelId){
-		this.userChannelIdSet.remove(channelId.asLongText());
+		if (this.userChannelIdSet.remove(channelId.asLongText())){
+			userNum--;
+		}
 	}
 }

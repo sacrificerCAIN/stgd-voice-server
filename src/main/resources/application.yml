@@ -2,13 +2,22 @@ server:
   port: 8080
   tcp-port: 6324
   udp-port: 6324
+  servlet:
+    session:
+      timeout: 259200
+      cookie:
+        http-only: true
 
 
 
-# Sqlite
+logging:
+  level:
+    root: OFF
+    org.springframework: OFF
+
 spring:
   datasource:
-    url: jdbc:sqlite:src/main/resources/sql/stgd_voice.db # 改为数据库路径
+    url: jdbc:sqlite:./stgd_voice.db # 改为数据库路径
     driver-class-name: org.sqlite.JDBC
 
 # MyBatis-Plus
@@ -27,6 +36,7 @@ mybatis-plus:
     # 打印sql出来(包括执行结果)
   #    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
+    banner: false
     db-config:
       # 主键类型 AUTO:"数据库ID自增"
       # INPUT:"用户输入ID",

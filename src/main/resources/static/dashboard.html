@@ -212,6 +212,7 @@
         <thead>
         <tr>
             <th>名称</th>
+            <th>在线人数</th>
             <th>操作</th>
         </tr>
         </thead>
@@ -254,12 +255,19 @@
     function logout() {
         // 这里可以添加登出逻辑，如清除session等
         // 然后跳转到index.html
+        fetch('http://localhost:8080/adminUser/logout', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
         window.location.href = 'index.html';
     }
 
     // 页面加载时自动获取Room列表
     window.onload = function() {
-        loadRooms();
+        init();
     };
 
     // 显示消息
@@ -336,6 +344,10 @@
             nameCell.textContent = room.name;
             row.appendChild(nameCell);
 
+            const userNumCell = document.createElement('td');
+            userNumCell.textContent = room.userNum;
+            row.appendChild(userNumCell);
+
             const actionCell = document.createElement('td');
             actionCell.className = 'action-buttons';
 
@@ -348,7 +360,7 @@
             const deleteBtn = document.createElement('button');
             deleteBtn.textContent = '删除';
             deleteBtn.className = 'danger';
-            deleteBtn.onclick = () => confirmDeleteRoom(room.id, room.name);
+            deleteBtn.onclick = () => confirmDeleteRoom(room.id, room.name, room.userNum);
             actionCell.appendChild(deleteBtn);
 
             row.appendChild(actionCell);
@@ -357,8 +369,14 @@
     }
 
     // 添加删除确认函数
-    function confirmDeleteRoom(id, name) {
-        if (confirm(`确定要删除房间 "${name}" 吗？此操作不可恢复！`)) {
+    function confirmDeleteRoom(id, name, userNum) {
+        if (userNum > 0){
+            if (confirm(`确定要删除 "${name}" 吗？注意当前仍有"${userNum}"人在线，且此操作不可逆。`)) {
+                deleteRoom(id);
+            }
+        }
+
+        if (confirm(`确定要删除 "${name}" 吗？此操作不可逆。`)) {
             deleteRoom(id);
         }
     }
@@ -431,6 +449,28 @@
 
         // 发送ID作为请求参数
         xhr.send(JSON.stringify({ id: id }));
+    }
+
+    async function init() {
+        try {
+            const response = await fetch('http://localhost:8080/adminUser/checkSession', {
+                method: 'GET',
+                credentials: 'include' // 包含cookie
+            });
+
+            const result = await response.json();
+
+            if (result.isAuthenticated) {
+                loadRooms();
+            }else {
+                // 如果没有有效会话，跳转到登录界面
+                alert('会话已过期，请重新登录');
+                window.location.href = '/index.html';
+            }
+        } catch (error) {
+            console.error('检查会话错误:', error);
+            window.location.href = '/index.html';
+        }
     }
 </script>
 </body>
