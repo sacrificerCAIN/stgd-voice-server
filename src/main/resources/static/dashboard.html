@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22  font-size=%2290%22>🐔</text></svg>">
+    <title>dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            position: relative;
+            min-height: 100vh;
+        }
+
+        .header-container {
+            position: relative;
+            max-width: 1200px;
+            margin: 0 auto 20px;
+        }
+
+        .logout-btn {
+            position: absolute;
+            top: 30px;
+            right: 0;
+            padding: 8px 15px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .logout-btn:hover {
+            background-color: #d32f2f;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button.danger {
+            background-color: #f44336;
+        }
+
+        button.danger:hover {
+            background-color: #d32f2f;
+        }
+
+        button.secondary {
+            background-color: #2196F3;
+        }
+
+        button.secondary:hover {
+            background-color: #0b7dda;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        #message {
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+            display: block;
+        }
+
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+            display: block;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+        }
+
+        /* 弹窗样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 50%;
+            max-width: 500px;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: black;
+        }
+
+        .modal-header {
+            padding: 10px 0;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 15px;
+        }
+
+        .modal-footer {
+            padding: 10px 0;
+            border-top: 1px solid #ddd;
+            margin-top: 15px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+<!-- 添加登出按钮容器 -->
+<div class="header-container">
+    <button class="logout-btn" onclick="confirmLogout()">登出</button>
+</div>
+
+<div class="container">
+    <h1>房间管理</h1>
+
+    <div id="message"></div>
+
+    <button type="button" onclick="openModal()">添加房间</button>
+    <button type="button" class="secondary" onclick="loadRooms()">刷新列表</button>
+
+    <h2>房间列表</h2>
+    <table id="roomTable">
+        <thead>
+        <tr>
+            <th>名称</th>
+            <th>在线人数</th>
+            <th>操作</th>
+        </tr>
+        </thead>
+        <tbody>
+        <!-- 数据将通过JavaScript动态加载 -->
+        </tbody>
+    </table>
+</div>
+
+<!-- 弹窗 -->
+<div id="roomModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle">添加房间</h2>
+        </div>
+        <form id="roomForm">
+            <input type="hidden" id="roomId">
+            <div class="form-group">
+                <label for="roomName">房间名称</label>
+                <input type="text" id="roomName" required>
+                <label for="password">房间密码</label>
+                <input type="password" id="password"  onclick="cleanPassword()" required>
+            </div>
+        </form>
+        <div class="modal-footer">
+            <button type="button" onclick="submitRoom()">保存</button>
+            <button type="button" class="secondary" onclick="closeModal()">取消</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
+<script>
+    // 添加登出确认函数
+    function confirmLogout() {
+        if (confirm('确定要退出登录吗？')) {
+            logout();
+        }
+    }
+
+    // 登出函数
+    function logout() {
+        // 这里可以添加登出逻辑，如清除session等
+        // 然后跳转到index.html
+        fetch('http://localhost:8080/login/logout', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        window.location.href = 'index.html';
+    }
+
+    // 页面加载时自动获取Room列表
+    window.onload = function() {
+        init();
+    };
+
+    // 显示消息
+    function showMessage(message, isSuccess) {
+        const messageEl = document.getElementById('message');
+        messageEl.textContent = message;
+        messageEl.className = isSuccess ? 'success' : 'error';
+        setTimeout(() => {
+            messageEl.style.display = 'none';
+        }, 3000);
+    }
+
+    // 打开弹窗
+    function openModal(room = null) {
+        const modal = document.getElementById('roomModal');
+        const modalTitle = document.getElementById('modalTitle');
+
+        if (room) {
+            modalTitle.textContent = '编辑房间';
+            document.getElementById('roomId').value = room.id;
+            document.getElementById('roomName').value = room.name;
+            if (room.password != null && room.password != ''){
+                document.getElementById('password').setAttribute("placeholder", "点击保存清除该房间密码，点击取消维持原密码");
+            }
+
+            document.getElementById('password').value = room.password;
+        } else {
+            modalTitle.textContent = '添加房间';
+            document.getElementById('roomForm').reset();
+            document.getElementById('roomId').value = '';
+        }
+
+        modal.style.display = 'block';
+    }
+
+    // 关闭弹窗
+    function closeModal() {
+        document.getElementById('roomModal').style.display = 'none';
+    }
+
+    // 点击弹窗外部关闭
+    window.onclick = function(event) {
+        const modal = document.getElementById('roomModal');
+        if (event.target == modal) {
+            closeModal();
+        }
+    }
+
+    // 加载所有房间
+    function loadRooms() {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'http://localhost:8080/room/getAllRoom', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    const rooms = JSON.parse(xhr.responseText);
+                    renderRoomTable(rooms);
+                } else {
+                    showMessage('获取房间列表失败: ' + xhr.status, false);
+                }
+            }
+        };
+
+        // 发送空对象作为请求体
+        xhr.send(JSON.stringify({}));
+    }
+
+    // 渲染房间表格
+    function renderRoomTable(rooms) {
+        const tbody = document.querySelector('#roomTable tbody');
+        tbody.innerHTML = '';
+
+        rooms.forEach(room => {
+            const row = document.createElement('tr');
+
+            const nameCell = document.createElement('td');
+
+            if (room.password != null && room.password != ''){
+                nameCell.textContent = "🔒" + room.name;
+            }else {
+                nameCell.textContent = room.name;
+            }
+
+            row.appendChild(nameCell);
+
+            const userNumCell = document.createElement('td');
+            userNumCell.textContent = room.userNum;
+            row.appendChild(userNumCell);
+
+            const actionCell = document.createElement('td');
+            actionCell.className = 'action-buttons';
+
+            const editBtn = document.createElement('button');
+            editBtn.textContent = '编辑';
+            editBtn.className = 'secondary';
+            editBtn.onclick = () => openModal(room);
+            actionCell.appendChild(editBtn);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = '删除';
+            deleteBtn.className = 'danger';
+            deleteBtn.onclick = () => confirmDeleteRoom(room.id, room.name, room.userNum);
+            actionCell.appendChild(deleteBtn);
+
+            row.appendChild(actionCell);
+            tbody.appendChild(row);
+        });
+    }
+
+    // 添加删除确认函数
+    function confirmDeleteRoom(id, name, userNum) {
+        if (userNum > 0){
+            if (confirm(`确定要删除 "${name}" 吗？注意当前仍有"${userNum}"人在线，且此操作不可逆。`)) {
+                deleteRoom(id);
+            }
+        }
+
+        if (confirm(`确定要删除 "${name}" 吗？此操作不可逆。`)) {
+            deleteRoom(id);
+        }
+    }
+
+    // 提交房间（添加或更新）
+    function submitRoom() {
+        const id = document.getElementById('roomId').value;
+        const name = document.getElementById('roomName').value;
+        const password = document.getElementById('password').value;
+        let hashedPassword = "";
+        //如密码不为空且不是已加密过的sha256格式，则视为有效新密码并对其进行加密,否则为不改动原密码
+        if (password != null && password != "" && !/^[a-f0-9]{64}$/i.test(password)){
+            hashedPassword = sha256(password);
+        }else{
+            hashedPassword = password;
+        }
+
+        if (!name) {
+            showMessage('房间名称不能为空', false);
+            return;
+        }
+
+        const room = {
+            name: name,
+            password: hashedPassword
+        };
+        let url = 'http://localhost:8080/room/insertRoom';
+        let method = '添加';
+
+        if (id) {
+            room.id = parseInt(id);
+            url = 'http://localhost:8080/room/updateRoom';
+            method = '更新';
+        }
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    const result = JSON.parse(xhr.responseText);
+                    if (result > 0) {
+                        showMessage(`房间${method}成功`, true);
+                        closeModal();
+                        loadRooms();
+                    } else {
+                        showMessage(`房间${method}失败`, false);
+                    }
+                } else {
+                    showMessage(`房间${method}失败: ` + xhr.status, false);
+                }
+            }
+        };
+
+        xhr.send(JSON.stringify(room));
+    }
+
+    // 删除房间
+    function deleteRoom(id) {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'http://localhost:8080/room/removeRoom', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    const result = JSON.parse(xhr.responseText);
+                    if (result > 0) {
+                        showMessage('房间删除成功', true);
+                        loadRooms();
+                    } else {
+                        showMessage('房间删除失败', false);
+                    }
+                } else {
+                    showMessage('房间删除失败: ' + xhr.status, false);
+                }
+            }
+        };
+
+        // 发送ID作为请求参数
+        xhr.send(JSON.stringify({ id: id }));
+    }
+
+    function sha256(message) {
+        const hash = CryptoJS.SHA256(message);
+        return hash.toString(CryptoJS.enc.Hex);
+    }
+
+    function cleanPassword(){
+        document.getElementById('password').value = '';
+    }
+
+    async function init() {
+        try {
+            const response = await fetch('http://localhost:8080/login/checkSession', {
+                method: 'GET',
+                credentials: 'include' // 包含cookie
+            });
+
+            const result = await response.json();
+
+            if (result.isAuthenticated) {
+                loadRooms();
+            }else {
+                // 如果没有有效会话，跳转到登录界面
+                alert('会话已过期，请重新登录');
+                window.location.href = '/index.html';
+            }
+        } catch (error) {
+            console.error('检查会话错误:', error);
+            window.location.href = '/index.html';
+        }
+    }
+</script>
+</body>
+</html>

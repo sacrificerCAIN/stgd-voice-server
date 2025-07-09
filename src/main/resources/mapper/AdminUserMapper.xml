@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.stgd.voice.mapper.AdminUserMapper" >
+    <select id="selectAll" resultType="com.stgd.voice.entity.AdminUser">
+        select
+        *
+        from admin_user
+    </select>
+    <select id="login" resultType="com.stgd.voice.entity.AdminUser">
+        select
+        *
+        from admin_user
+        where username = #{username}
+        and password = #{password}
+    </select>
+</mapper>

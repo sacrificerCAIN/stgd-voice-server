@@ -1,6 +1,154 @@
-<html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22  font-size=%2290%22>🐔</text></svg>">
+    <title>stgd voice</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+        .login-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 300px;
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #message {
+            margin-top: 15px;
+            text-align: center;
+            color: red;
+        }
+    </style>
+</head>
 <body>
-<h1>hello word!!!</h1>
-<p>this is a html page</p>
+<div class="login-container">
+    <h2>stgd voice</h2>
+    <form id="loginForm">
+        <div class="input-group">
+            <label for="username">用户名</label>
+            <input type="text" id="username" name="username" required>
+        </div>
+        <div class="input-group">
+            <label for="password">密码</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <button type="button" onclick="submitLogin()">登录</button>
+        <div id="message"></div>
+    </form>
+</div>
+
+<!-- 引入 crypto-js 库用于SHA256加密 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
+<script>
+    // 检查是否已有会话
+    checkSession();
+
+    async function sha256(message) {
+        const hash = CryptoJS.SHA256(message);
+        return hash.toString(CryptoJS.enc.Hex);
+    }
+
+    async function submitLogin() {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const messageEl = document.getElementById('message');
+
+        if (!username || !password) {
+            messageEl.textContent = '用户名和密码不能为空';
+            return;
+        }
+
+        try {
+            const hashedPassword = await sha256(password);
+
+            const response = await fetch('http://localhost:8080/login/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include', // 包含cookie
+                body: JSON.stringify({
+                    username: username,
+                    password: hashedPassword
+                })
+            });
+
+            const result = await response.json();
+
+            if (result == 1) {
+                messageEl.textContent = '登录成功';
+                messageEl.style.color = 'green';
+                // 登录成功后跳转
+                window.location.href = '/dashboard.html';
+            } else {
+                messageEl.textContent = result.message || '用户名或密码错误';
+                messageEl.style.color = 'red';
+            }
+        } catch (error) {
+            messageEl.textContent = '登录过程中出错';
+            messageEl.style.color = 'red';
+            console.error('登录错误:', error);
+        }
+    }
+
+    // 检查会话状态
+    async function checkSession() {
+        try {
+            const response = await fetch('http://localhost:8080/login/checkSession', {
+                method: 'GET',
+                credentials: 'include' // 包含cookie
+            });
+
+            const result = await response.json();
+
+            if (result.isAuthenticated) {
+                // 如果已有有效会话，直接跳转到dashboard
+                window.location.href = '/dashboard.html';
+            }
+        } catch (error) {
+            console.error('检查会话错误:', error);
+        }
+    }
+</script>
 </body>
 </html>
