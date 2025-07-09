@@ -36,7 +36,12 @@ public class RoomController {
 	@PostMapping("updateRoom")
 	@ResponseBody
 	public Integer updateRoom(@RequestBody Room room) {
-		return RoomMapper.updateById(room);
+		Integer result = RoomMapper.updateById(room);
+		if (result == 1){
+			room.setUserNum(connectManager.findRoomById(room.getId()).getUserNum());
+			connectManager.addRoom(room);
+		}
+		return result;
 	}
 
 	@PostMapping("getAllRoom")

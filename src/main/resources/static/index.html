@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录界面</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22  font-size=%2290%22>🐔</text></svg>">
+    <title>stgd voice</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -60,7 +61,7 @@
 </head>
 <body>
 <div class="login-container">
-    <h2>stgd-voice</h2>
+    <h2>stgd voice</h2>
     <form id="loginForm">
         <div class="input-group">
             <label for="username">用户名</label>
@@ -100,7 +101,7 @@
         try {
             const hashedPassword = await sha256(password);
 
-            const response = await fetch('http://localhost:8080/adminUser/login', {
+            const response = await fetch('http://localhost:8080/login/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -133,7 +134,7 @@
     // 检查会话状态
     async function checkSession() {
         try {
-            const response = await fetch('http://localhost:8080/adminUser/checkSession', {
+            const response = await fetch('http://localhost:8080/login/checkSession', {
                 method: 'GET',
                 credentials: 'include' // 包含cookie
             });

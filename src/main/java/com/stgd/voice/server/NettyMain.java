@@ -1,3 +1,4 @@
+
 package com.stgd.voice.server;
 
 import com.stgd.voice.config.ServerConfig;
@@ -21,27 +22,26 @@ import io.netty.util.CharsetUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-/**
- * @author Hzzz
- */
+import java.net.BindException;
+
 @Component
 public class NettyMain {
-
 	@Autowired
 	private ConnectManager connectManager;
-
 	@Autowired
 	private MessageStrategyFactory messageStrategyFactory;
-
 	@Autowired
 	private ServerConfig serverConfig;
 
 	public void start() {
 		EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-		EventLoopGroup workerGroup = new NioEventLoopGroup();
+		EventLoopGroup tcpGroup = new NioEventLoopGroup();
+		EventLoopGroup udpGroup = new NioEventLoopGroup();
+
 		try {
+			// TCP服务器设置
 			ServerBootstrap tcpBootstrap = new ServerBootstrap();
-			tcpBootstrap.group(bossGroup, workerGroup)
+			tcpBootstrap.group(bossGroup, tcpGroup)
 					.channel(NioServerSocketChannel.class)
 					.childHandler(new ChannelInitializer<SocketChannel>() {
 						@Override
@@ -51,10 +51,23 @@ public class NettyMain {
 							ch.pipeline().addLast(new TextHandler(connectManager, messageStrategyFactory));
 						}
 					});
-			ChannelFuture tcpFuture = tcpBootstrap.bind(serverConfig.getTcpPort()).sync();
 
-			// UDP 服务器设置
-			EventLoopGroup udpGroup = new NioEventLoopGroup();
+			ChannelFuture tcpFuture = null;
+			try {
+				tcpFuture = tcpBootstrap.bind(serverConfig.getTcpPort()).sync();
+				System.out.println("TCP服务启动成功，端口：" + serverConfig.getTcpPort());
+			} catch (Exception e) {
+				if (e.getCause() instanceof BindException) {
+					System.err.println("TCP端口绑定失败：" + serverConfig.getTcpPort() +
+							"，可能已被占用或没有权限，程序会在5秒后关闭");
+					Thread.sleep(5000);
+					System.exit(1);
+					return;
+				}
+				throw e;
+			}
+
+			// UDP服务器设置
 			try {
 				Bootstrap udpBootstrap = new Bootstrap();
 				udpBootstrap.group(udpGroup)
@@ -65,10 +78,24 @@ public class NettyMain {
 								ch.pipeline().addLast(new VoiceHandler());
 							}
 						});
-				ChannelFuture udpFuture = udpBootstrap.bind(serverConfig.getUdpPort()).sync();
+
+				ChannelFuture udpFuture = null;
+				try {
+					udpFuture = udpBootstrap.bind(serverConfig.getUdpPort()).sync();
+					System.out.println("UDP服务启动成功，端口：" + serverConfig.getUdpPort());
+				} catch (Exception e) {
+					if (e.getCause() instanceof BindException) {
+						System.err.println("UDP端口绑定失败：" + serverConfig.getUdpPort() +
+								"，可能已被占用或没有权限，程序会在5秒后关闭");
+						Thread.sleep(5000);
+						System.exit(1);
+						return;
+					}
+					throw e;
+				}
 
 				connectManager.init();
-				System.out.println("项目启动成功");
+				System.out.println("项目启动成功,请访问控制台 http://localhost:" + serverConfig.getPort());
 
 				// 等待两个服务器关闭
 				tcpFuture.channel().closeFuture().sync();
@@ -77,11 +104,15 @@ public class NettyMain {
 				udpGroup.shutdownGracefully();
 			}
 		} catch (InterruptedException e) {
+			System.err.println("服务被中断：" + e.getMessage());
+			Thread.currentThread().interrupt();
+		} catch (Exception e) {
+			System.err.println("服务启动异常：" + e.getMessage());
 			e.printStackTrace();
 		} finally {
 			bossGroup.shutdownGracefully();
-			workerGroup.shutdownGracefully();
+			tcpGroup.shutdownGracefully();
+			udpGroup.shutdownGracefully();
 		}
 	}
-
 }

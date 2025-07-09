@@ -18,6 +18,8 @@ public class Room {
 
 	private String name;
 
+	private String password;
+
 	private Integer userNum;
 
 	@TableField(exist = false)

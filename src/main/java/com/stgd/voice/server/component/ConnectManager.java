@@ -36,15 +36,12 @@ public class ConnectManager {
 	private RoomMapper roomMapper;
 
 	public void init(){
-		System.out.println("开始执行服务器初始化");
 		System.out.println("正在初始化房间...");
 		//加载所有房间到内存
 		List<Room> roomList = roomMapper.selectAll();
 		roomList.forEach(room -> room.setUserNum(0));
 		roomList.forEach(room -> roomMap.put(room.getId(), room));
 		System.out.println("房间初始化完成");
-
-		System.out.println("服务器初始化完成");
 	}
 	public void addClient(ChannelHandlerContext ctx){
 		channelGroup.add(ctx.channel());
@@ -89,7 +86,7 @@ public class ConnectManager {
 	public void removeRoom(Integer id){
 		Room room = roomMap.get(id);
 		Set<ChannelId> channelIdSet = getChannelIdSetByChannelIdStringSet(room.getUserChannelIdSet());
-		publishSet(channelIdSet, "管理员解散了该房间\n");
+		publishSet(channelIdSet, "管理员解散了[" + room.getName() +"]\n");
 		roomMap.remove(id);
 	}
 

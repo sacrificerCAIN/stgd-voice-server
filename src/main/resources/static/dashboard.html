@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>房间管理面板</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22  font-size=%2290%22>🐔</text></svg>">
+    <title>dashboard</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -200,7 +201,7 @@
 </div>
 
 <div class="container">
-    <h1>房间管理面板</h1>
+    <h1>房间管理</h1>
 
     <div id="message"></div>
 
@@ -234,6 +235,8 @@
             <div class="form-group">
                 <label for="roomName">房间名称</label>
                 <input type="text" id="roomName" required>
+                <label for="password">房间密码</label>
+                <input type="password" id="password"  onclick="cleanPassword()" required>
             </div>
         </form>
         <div class="modal-footer">
@@ -242,6 +245,8 @@
         </div>
     </div>
 </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 
 <script>
     // 添加登出确认函数
@@ -255,7 +260,7 @@
     function logout() {
         // 这里可以添加登出逻辑，如清除session等
         // 然后跳转到index.html
-        fetch('http://localhost:8080/adminUser/logout', {
+        fetch('http://localhost:8080/login/logout', {
             method: 'POST',
             credentials: 'include',
             headers: {
@@ -289,6 +294,11 @@
             modalTitle.textContent = '编辑房间';
             document.getElementById('roomId').value = room.id;
             document.getElementById('roomName').value = room.name;
+            if (room.password != null && room.password != ''){
+                document.getElementById('password').setAttribute("placeholder", "点击保存清除该房间密码，点击取消维持原密码");
+            }
+
+            document.getElementById('password').value = room.password;
         } else {
             modalTitle.textContent = '添加房间';
             document.getElementById('roomForm').reset();
@@ -341,7 +351,13 @@
             const row = document.createElement('tr');
 
             const nameCell = document.createElement('td');
-            nameCell.textContent = room.name;
+
+            if (room.password != null && room.password != ''){
+                nameCell.textContent = "🔒" + room.name;
+            }else {
+                nameCell.textContent = room.name;
+            }
+
             row.appendChild(nameCell);
 
             const userNumCell = document.createElement('td');
@@ -385,13 +401,24 @@
     function submitRoom() {
         const id = document.getElementById('roomId').value;
         const name = document.getElementById('roomName').value;
+        const password = document.getElementById('password').value;
+        let hashedPassword = "";
+        //如密码不为空且不是已加密过的sha256格式，则视为有效新密码并对其进行加密,否则为不改动原密码
+        if (password != null && password != "" && !/^[a-f0-9]{64}$/i.test(password)){
+            hashedPassword = sha256(password);
+        }else{
+            hashedPassword = password;
+        }
 
         if (!name) {
             showMessage('房间名称不能为空', false);
             return;
         }
 
-        const room = { name: name };
+        const room = {
+            name: name,
+            password: hashedPassword
+        };
         let url = 'http://localhost:8080/room/insertRoom';
         let method = '添加';
 
@@ -451,9 +478,18 @@
         xhr.send(JSON.stringify({ id: id }));
     }
 
+    function sha256(message) {
+        const hash = CryptoJS.SHA256(message);
+        return hash.toString(CryptoJS.enc.Hex);
+    }
+
+    function cleanPassword(){
+        document.getElementById('password').value = '';
+    }
+
     async function init() {
         try {
-            const response = await fetch('http://localhost:8080/adminUser/checkSession', {
+            const response = await fetch('http://localhost:8080/login/checkSession', {
                 method: 'GET',
                 credentials: 'include' // 包含cookie
             });
