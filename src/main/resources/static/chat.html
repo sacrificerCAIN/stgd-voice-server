@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>聊天室</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Microsoft YaHei", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .header {
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .header .user-info {
+      font-size: 14px;
+    }
+    .header .logout-btn {
+      background: #ff6b6b;
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 12px;
+    }
+    .main {
+      display: flex;
+      height: calc(100vh - 56px);
+      padding: 16px;
+      gap: 16px;
+    }
+    .sidebar {
+      width: 260px;
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px;
+      overflow-y: auto;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .sidebar h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+      color: #333;
+    }
+    .sidebar .status {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 12px;
+    }
+    .status.connected { background: #d4edda; color: #155724; }
+    .status.disconnected { background: #f8d7da; color: #721c24; }
+    .status.connecting { background: #fff3cd; color: #856404; }
+    .nickname-box {
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eee;
+    }
+    .nickname-box input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .nickname-box button {
+      margin-top: 8px;
+      width: 100%;
+      padding: 8px;
+      background: #4CAF50;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .room-list { list-style: none; padding: 0; margin: 0; }
+    .room-list li {
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      background: #f8f9fa;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background 0.2s;
+    }
+    .room-list li:hover { background: #e9ecef; }
+    .room-list li.active { background: #4CAF50; color: #fff; }
+    .room-list li .room-name { font-size: 14px; }
+    .room-list li .room-count { font-size: 12px; opacity: 0.8; }
+    .chat-area {
+      flex: 1;
+      background: #fff;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .chat-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #eee;
+      background: #f8f9fa;
+      font-weight: bold;
+      color: #333;
+    }
+    .messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+    .message { margin-bottom: 12px; display: flex; flex-direction: column; }
+    .message .meta { font-size: 12px; color: #999; margin-bottom: 4px; }
+    .message .content {
+      padding: 8px 12px;
+      border-radius: 8px;
+      max-width: 70%;
+      word-wrap: break-word;
+    }
+    .message.system { align-items: center; }
+    .message.system .content {
+      background: #e9ecef;
+      color: #666;
+      font-size: 12px;
+      padding: 4px 10px;
+    }
+    .message.self { align-items: flex-end; }
+    .message.self .content { background: #4CAF50; color: #fff; }
+    .message.other { align-items: flex-start; }
+    .message.other .content { background: #fff; border: 1px solid #eee; color: #333; }
+    .message.private .meta { color: #9b59b6; }
+    .message.private .content { background: #9b59b6; color: #fff; }
+    .message.broadcast .meta { color: #e67e22; }
+    .message.broadcast .content { background: #e67e22; color: #fff; }
+    .input-area {
+      padding: 12px;
+      border-top: 1px solid #eee;
+      background: #fff;
+      display: flex;
+      gap: 8px;
+    }
+    .input-area textarea {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      resize: none;
+      font-size: 14px;
+      font-family: inherit;
+      height: 60px;
+    }
+    .input-area .btns {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .input-area button {
+      padding: 10px 16px;
+      background: #4CAF50;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      min-width: 80px;
+    }
+    .input-area button.broadcast { background: #e67e22; }
+    .input-area button:disabled { background: #ccc; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+<div class="header">
+  <h1>💬 聊天室</h1>
+  <div class="user-info">
+    <span id="loginUser">-</span>
+    <button class="logout-btn" onclick="logout()">退出</button>
+  </div>
+</div>
+<div class="main">
+  <div class="sidebar">
+    <span id="wsStatus" class="status disconnected">未连接</span>
+    <div class="nickname-box">
+      <h2 style="margin-top:8px">我的昵称</h2>
+      <input type="text" id="nickname" placeholder="请输入昵称">
+      <button onclick="setNickname()">设置昵称</button>
+    </div>
+    <h2>房间列表</h2>
+    <ul id="roomList" class="room-list">
+      <li>加载中...</li>
+    </ul>
+  </div>
+  <div class="chat-area">
+    <div class="chat-header" id="chatHeader">请选择房间</div>
+    <div class="messages" id="messages"></div>
+    <div class="input-area">
+      <textarea id="messageInput" placeholder="输入消息... (Enter发送, Shift+Enter换行)"></textarea>
+      <div class="btns">
+        <button id="sendBtn" onclick="sendMessage()">发送</button>
+        <button id="broadcastBtn" class="broadcast" onclick="sendBroadcast()">广播</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let chatSocket = null;
+  let currentUserId = null;
+  let currentUserName = null;
+  let currentRoomId = null;
+  let currentRoomName = null;
+
+  async function init() {
+    try {
+      const resp = await fetch('/login/checkSession', { credentials: 'include' });
+      const result = await resp.json();
+      if (!result.isAuthenticated) {
+        alert('请先登录');
+        window.location.href = '/index.html';
+        return;
+      }
+      document.getElementById('loginUser').textContent = '账号: ' + (result.username || '未知');
+      loadRooms();
+      connectChat();
+    } catch (e) {
+      console.error(e);
+      alert('会话验证失败，请重新登录');
+      window.location.href = '/index.html';
+    }
+  }
+
+  function setWsStatus(status, text) {
+    const el = document.getElementById('wsStatus');
+    el.className = 'status ' + status;
+    el.textContent = text;
+  }
+
+  function connectChat() {
+    const protocol = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+    const host = window.location.host || 'localhost:8080';
+    const url = protocol + '//' + host + '/ws/chat';
+    try {
+      setWsStatus('connecting', '连接中...');
+      chatSocket = new WebSocket(url);
+    } catch (e) {
+      setWsStatus('disconnected', '连接失败');
+      return;
+    }
+    chatSocket.onopen = function() {
+      setWsStatus('connected', '已连接');
+      addSystemMessage('聊天室已连接');
+    };
+    chatSocket.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        handleServerMessage(data);
+      } catch (e) {
+        addSystemMessage(event.data);
+      }
+    };
+    chatSocket.onclose = function() {
+      setWsStatus('disconnected', '已断开');
+      addSystemMessage('聊天室连接已关闭，3秒后自动重连...');
+      setTimeout(connectChat, 3000);
+    };
+    chatSocket.onerror = function() {
+      setWsStatus('disconnected', '连接错误');
+    };
+  }
+
+  function handleServerMessage(data) {
+    const type = data.type;
+    if (type === 'login') {
+      currentUserId = data.userId;
+      addSystemMessage('已登录为 ' + data.userName);
+    } else if (type === 'join') {
+      currentRoomId = data.roomId;
+      currentRoomName = data.roomName;
+      document.getElementById('chatHeader').textContent = '当前房间: ' + data.roomName;
+      refreshRoomListHighlight();
+      addSystemMessage('已加入房间 [' + data.roomName + ']');
+    } else if (type === 'logout') {
+      addSystemMessage('已退出');
+    } else if (type === 'system') {
+      addSystemMessage(data.payload);
+    } else if (type === 'room') {
+      const isSelf = data.userName === currentUserName;
+      addMessage(data.userName, data.payload, isSelf ? 'self' : 'other', 'room');
+    } else if (type === 'private') {
+      addMessage(data.fromUserName, data.payload, 'self', 'private');
+    } else if (type === 'broadcast') {
+      addMessage('[广播]' + data.userName, data.payload, 'other', 'broadcast');
+    }
+  }
+
+  function addMessage(userName, content, cls, extra) {
+    const container = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = 'message ' + cls + (extra ? ' ' + extra : '');
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const s = String(now.getSeconds()).padStart(2, '0');
+    meta.textContent = userName + ' ' + h + ':' + m + ':' + s;
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'content';
+    contentDiv.textContent = content;
+    div.appendChild(meta);
+    div.appendChild(contentDiv);
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function addSystemMessage(text) {
+    const container = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = 'message system';
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'content';
+    contentDiv.textContent = text;
+    div.appendChild(contentDiv);
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function setNickname() {
+    const nickname = document.getElementById('nickname').value.trim();
+    if (!nickname) {
+      alert('昵称不能为空');
+      return;
+    }
+    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+      currentUserName = nickname;
+      chatSocket.send(JSON.stringify({ type: 1, userName: nickname }));
+    } else {
+      alert('WebSocket 未连接');
+    }
+  }
+
+  async function loadRooms() {
+    try {
+      const resp = await fetch('/room/getAllRoom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: '{}'
+      });
+      const rooms = await resp.json();
+      const ul = document.getElementById('roomList');
+      ul.innerHTML = '';
+      if (!rooms || rooms.length === 0) {
+        ul.innerHTML = '<li style="cursor:default;color:#999">暂无房间</li>';
+        return;
+      }
+      rooms.forEach(room => {
+        const li = document.createElement('li');
+        li.dataset.roomId = room.id;
+        li.innerHTML = '<span class="room-name">' + (room.name || '房间' + room.id) +
+                (room.password && room.password.length > 0 ? ' 🔒' : '') +
+                '</span><span class="room-count">' + (room.userNum || 0) + '人</span>';
+        li.onclick = function() { joinRoom(room.id); };
+        ul.appendChild(li);
+      });
+      refreshRoomListHighlight();
+    } catch (e) {
+      console.error(e);
+      document.getElementById('roomList').innerHTML = '<li>加载失败</li>';
+    }
+  }
+
+  function refreshRoomListHighlight() {
+    const items = document.querySelectorAll('#roomList li');
+    items.forEach(li => {
+      if (parseInt(li.dataset.roomId) === currentRoomId) {
+        li.classList.add('active');
+      } else {
+        li.classList.remove('active');
+      }
+    });
+  }
+
+  function joinRoom(roomId) {
+    if (!currentUserName) {
+      alert('请先设置昵称');
+      return;
+    }
+    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+      chatSocket.send(JSON.stringify({ type: 6, targetRoomId: roomId }));
+    } else {
+      alert('WebSocket 未连接');
+    }
+  }
+
+  function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
+    if (!text) return;
+    if (!currentUserName) { alert('请先设置昵称'); return; }
+    if (!currentRoomId) { alert('请先选择房间'); return; }
+    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+      chatSocket.send(JSON.stringify({ type: 3, roomId: currentRoomId, payload: text }));
+      input.value = '';
+    } else {
+      alert('WebSocket 未连接');
+    }
+  }
+
+  function sendBroadcast() {
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
+    if (!text) return;
+    if (!currentUserName) { alert('请先设置昵称'); return; }
+    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+      chatSocket.send(JSON.stringify({ type: 5, payload: text }));
+      input.value = '';
+    } else {
+      alert('WebSocket 未连接');
+    }
+  }
+
+  document.getElementById('messageInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  function logout() {
+    fetch('/login/logout', { method: 'POST', credentials: 'include' }).finally(() => {
+      window.location.href = '/index.html';
+    });
+  }
+
+  // 定时刷新房间列表（每30秒）
+  setInterval(loadRooms, 30000);
+
+  init();
+</script>
+</body>
+</html>

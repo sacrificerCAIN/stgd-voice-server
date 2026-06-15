@@ -29,7 +29,13 @@ public class Room {
 		if (channelId == null) {
 			return;
 		}
-		String channelIdStr = channelId.asLongText();
+		addUser(channelId.asLongText());
+	}
+
+	public void addUser(String channelIdStr){
+		if (channelIdStr == null || channelIdStr.isEmpty()) {
+			return;
+		}
 		if (!this.userChannelIdSet.contains(channelIdStr)){
 			this.userChannelIdSet.add(channelIdStr);
 			if (userNum == null) {
@@ -43,7 +49,14 @@ public class Room {
 		if (channelId == null) {
 			return;
 		}
-		if (this.userChannelIdSet.remove(channelId.asLongText())){
+		removeUser(channelId.asLongText());
+	}
+
+	public void removeUser(String channelIdStr){
+		if (channelIdStr == null || channelIdStr.isEmpty()) {
+			return;
+		}
+		if (this.userChannelIdSet.remove(channelIdStr)){
 			if (userNum == null) {
 				userNum = 0;
 			}

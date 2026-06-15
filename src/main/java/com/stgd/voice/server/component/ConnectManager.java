@@ -1,5 +1,6 @@
 package com.stgd.voice.server.component;
 
+import com.alibaba.fastjson.JSONObject;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.entity.User;
 import com.stgd.voice.mapper.RoomMapper;
@@ -12,6 +13,8 @@ import io.netty.util.concurrent.GlobalEventExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import javax.websocket.Session;
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -20,16 +23,27 @@ import java.util.stream.Collectors;
 
 /**
  * @author Hzzz
+ * 统一的连接/用户/房间管理中心，同时支持 Netty TCP 客户端和 WebSocket 浏览器客户端。
  */
 @Component
 public class ConnectManager {
 
+	// ============ Netty TCP 客户端 ============
 	private static final ChannelGroup channelGroup = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 
 	private static final ConcurrentHashMap<String, ChannelId> channelWithStringIdMap = new ConcurrentHashMap<>();
 
 	private static final ConcurrentHashMap<String, User> userMap = new ConcurrentHashMap<>();
 
+	// ============ WebSocket 浏览器客户端 ============
+	// sessionId -> javax.websocket.Session
+	private static final ConcurrentHashMap<String, Session> wsSessionMap = new ConcurrentHashMap<>();
+	// sessionId -> 用户名
+	private static final ConcurrentHashMap<String, String> wsUserMap = new ConcurrentHashMap<>();
+	// sessionId -> 当前房间ID（用于离开时清理）
+	private static final ConcurrentHashMap<String, Integer> wsRoomMap = new ConcurrentHashMap<>();
+
+	// ============ 房间管理 ============
 	private static final ConcurrentHashMap<Integer, Room> roomMap = new ConcurrentHashMap<>();
 
 	@Autowired
@@ -151,5 +165,213 @@ public class ConnectManager {
 					return id != null && channelIdSet.contains(id);
 				})
 				.forEach(ch -> ch.writeAndFlush(s + "\n"));
+	}
+
+	// ==================== WebSocket 客户端支持 ====================
+
+	/** 注册一个 WebSocket 会话（连接建立时调用） */
+	public void addWsSession(Session session) {
+		if (session == null) return;
+		wsSessionMap.put(session.getId(), session);
+	}
+
+	/** 移除一个 WebSocket 会话（连接关闭时调用，自动退出所在房间、清除用户信息） */
+	public void removeWsSession(String sessionId) {
+		if (sessionId == null) return;
+		wsSessionMap.remove(sessionId);
+		String userName = wsUserMap.remove(sessionId);
+		Integer roomId = wsRoomMap.remove(sessionId);
+		if (roomId != null) {
+			Room room = roomMap.get(roomId);
+			if (room != null) {
+				room.removeUser(sessionId);
+				if (userName != null) {
+					publishRoomSystem(roomId, userName + " 离开了房间");
+				}
+			}
+		}
+	}
+
+	/** WebSocket 客户端设置昵称（类似 TCP 客户端 type=1 登录） */
+	public String registerWsUser(String sessionId, String userName) {
+		if (sessionId == null || userName == null || userName.trim().isEmpty()) {
+			return null;
+		}
+		wsUserMap.put(sessionId, userName.trim());
+		return userName.trim();
+	}
+
+	/** 获取 WebSocket 客户端的昵称 */
+	public String getWsUserName(String sessionId) {
+		return sessionId == null ? null : wsUserMap.get(sessionId);
+	}
+
+	/** WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见） */
+	public Room joinWsRoom(String sessionId, Integer targetRoomId) {
+		if (sessionId == null || targetRoomId == null) return null;
+		if (!wsUserMap.containsKey(sessionId)) return null;
+		Room targetRoom = roomMap.get(targetRoomId);
+		if (targetRoom == null) return null;
+
+		// 如果当前已在某个房间，先离开
+		Integer oldRoomId = wsRoomMap.get(sessionId);
+		if (oldRoomId != null && !oldRoomId.equals(targetRoomId)) {
+			Room oldRoom = roomMap.get(oldRoomId);
+			if (oldRoom != null) {
+				oldRoom.removeUser(sessionId);
+				String userName = wsUserMap.get(sessionId);
+				if (userName != null) {
+					publishRoomSystem(oldRoomId, userName + " 离开了房间");
+				}
+			}
+		}
+
+		// 加入新房间
+		targetRoom.addUser(sessionId);
+		wsRoomMap.put(sessionId, targetRoomId);
+		String userName = wsUserMap.get(sessionId);
+		if (userName != null) {
+			publishRoomSystem(targetRoomId, userName + " 加入了房间");
+		}
+		return targetRoom;
+	}
+
+	/** WebSocket 客户端离开房间（例如手动切换） */
+	public void leaveWsRoom(String sessionId) {
+		if (sessionId == null) return;
+		Integer roomId = wsRoomMap.remove(sessionId);
+		if (roomId != null) {
+			Room room = roomMap.get(roomId);
+			if (room != null) {
+				room.removeUser(sessionId);
+				String userName = wsUserMap.get(sessionId);
+				if (userName != null) {
+					publishRoomSystem(roomId, userName + " 离开了房间");
+				}
+			}
+		}
+	}
+
+	// ==================== 统一的房间消息推送（TCP + WebSocket） ====================
+
+	/**
+	 * 向房间内所有成员发送一条聊天消息。
+	 * - TCP 客户端收到: [userName]: payload
+	 * - WebSocket 客户端收到: {"type":"room","userName":"...","payload":"...","roomId":...}
+	 */
+	public void publishRoomMessage(Integer roomId, String userName, String payload) {
+		if (roomId == null) return;
+		Room room = roomMap.get(roomId);
+		if (room == null) return;
+
+		String nettyText = "[" + (userName == null ? "未知" : userName) + "]: " + (payload == null ? "" : payload) + "\n";
+
+		JSONObject wsJson = new JSONObject();
+		wsJson.put("type", "room");
+		wsJson.put("roomId", roomId);
+		wsJson.put("userName", userName);
+		wsJson.put("payload", payload);
+		wsJson.put("timestamp", System.currentTimeMillis());
+		String wsText = wsJson.toJSONString();
+
+		for (String idStr : room.getUserChannelIdSet()) {
+			// 先尝试作为 Netty channelId 推送
+			ChannelId channelId = channelWithStringIdMap.get(idStr);
+			if (channelId != null) {
+				Channel ch = channelGroup.find(channelId);
+				if (ch != null && ch.isActive()) {
+					ch.writeAndFlush(nettyText);
+					continue;
+				}
+			}
+			// 再尝试作为 WebSocket sessionId 推送
+			Session session = wsSessionMap.get(idStr);
+			if (session != null && session.isOpen()) {
+				try {
+					session.getBasicRemote().sendText(wsText);
+				} catch (IOException ignored) {}
+			}
+		}
+	}
+
+	/** 向房间内所有成员发送一条系统提示（xxx 加入了房间 / xxx 离开了房间） */
+	public void publishRoomSystem(Integer roomId, String text) {
+		if (roomId == null || text == null) return;
+		Room room = roomMap.get(roomId);
+		if (room == null) return;
+
+		String nettyText = "[系统]: " + text + "\n";
+		JSONObject wsJson = new JSONObject();
+		wsJson.put("type", "system");
+		wsJson.put("payload", text);
+		wsJson.put("timestamp", System.currentTimeMillis());
+		String wsText = wsJson.toJSONString();
+
+		for (String idStr : room.getUserChannelIdSet()) {
+			ChannelId channelId = channelWithStringIdMap.get(idStr);
+			if (channelId != null) {
+				Channel ch = channelGroup.find(channelId);
+				if (ch != null && ch.isActive()) {
+					ch.writeAndFlush(nettyText);
+					continue;
+				}
+			}
+			Session session = wsSessionMap.get(idStr);
+			if (session != null && session.isOpen()) {
+				try {
+					session.getBasicRemote().sendText(wsText);
+				} catch (IOException ignored) {}
+			}
+		}
+	}
+
+	/** 获取指定 WebSocket 会话所在的房间ID */
+	public Integer getWsRoomId(String sessionId) {
+		return sessionId == null ? null : wsRoomMap.get(sessionId);
+	}
+
+	/** 直接向指定 WebSocket 会话发送 JSON 文本（用于登录响应、私聊等特定场景） */
+	public void sendWsOne(String sessionId, String text) {
+		if (sessionId == null) return;
+		Session session = wsSessionMap.get(sessionId);
+		if (session != null && session.isOpen()) {
+			try {
+				session.getBasicRemote().sendText(text);
+			} catch (IOException ignored) {}
+		}
+	}
+
+	/** WebSocket 私聊：从一个 WebSocket 客户端发给另一个 WebSocket 或 Netty 客户端 */
+	public void sendWsPrivate(String sourceSessionId, String targetId, String payload) {
+		if (sourceSessionId == null || targetId == null) return;
+		String sourceName = wsUserMap.get(sourceSessionId);
+
+		// 先尝试目标是 WebSocket 客户端
+		Session targetSession = wsSessionMap.get(targetId);
+		if (targetSession != null && targetSession.isOpen()) {
+			JSONObject json = new JSONObject();
+			json.put("type", "private");
+			json.put("fromUserName", sourceName == null ? "未知" : sourceName);
+			json.put("fromUserId", sourceSessionId);
+			json.put("payload", payload);
+			json.put("timestamp", System.currentTimeMillis());
+			try {
+				targetSession.getBasicRemote().sendText(json.toJSONString());
+			} catch (IOException ignored) {}
+			return;
+		}
+
+		// 再尝试目标是 Netty 客户端
+		ChannelId targetChannelId = channelWithStringIdMap.get(targetId);
+		if (targetChannelId != null) {
+			Channel ch = channelGroup.find(targetChannelId);
+			if (ch != null && ch.isActive()) {
+				ch.writeAndFlush("[" + (sourceName == null ? "未知" : sourceName) + "]对你说：" + (payload == null ? "" : payload) + "\n");
+				return;
+			}
+		}
+
+		// 对方不存在，告知发送方
+		sendWsOne(sourceSessionId, "{\"type\":\"system\",\"payload\":\"对方已下线\"}");
 	}
 }

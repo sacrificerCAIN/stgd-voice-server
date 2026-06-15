@@ -19,18 +19,24 @@ public class LoginController {
 
 	@RequestMapping("login")
 	@ResponseBody
-	public Integer login(@RequestBody AdminUser adminUser,
-	                     HttpServletRequest request) {
-		if (adminUserMapper.login(adminUser) != null){
+	public Map<String, Object> login(@RequestBody AdminUser adminUser,
+	                                 HttpServletRequest request) {
+		Map<String, Object> response = new HashMap<>();
+		AdminUser loginUser = adminUserMapper.login(adminUser);
+		if (loginUser != null){
 			// 获取或创建session
 			HttpSession session = request.getSession();
 			// 设置session属性
-			session.setAttribute("id", adminUser.getId());
+			session.setAttribute("id", loginUser.getId());
+			session.setAttribute("username", loginUser.getUsername());
 			// 显式设置3天过期(可选，因为已在配置中设置)
 			session.setMaxInactiveInterval(259200);
-			return 1;
+			response.put("code", 1);
+			response.put("username", loginUser.getUsername());
+			return response;
 		}else {
-			return 0;
+			response.put("code", 0);
+			return response;
 		}
 	}
 
@@ -45,6 +51,7 @@ public class LoginController {
 			session.setMaxInactiveInterval(259200);
 			response.put("isAuthenticated", true);
 			response.put("id", session.getAttribute("id"));
+			response.put("username", session.getAttribute("username"));
 		} else {
 			response.put("isAuthenticated", false);
 		}

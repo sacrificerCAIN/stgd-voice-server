@@ -115,11 +115,16 @@
 
             const result = await response.json();
 
-            if (result == 1) {
+            if (result.code == 1) {
                 messageEl.textContent = '登录成功';
                 messageEl.style.color = 'green';
-                // 登录成功后跳转
-                window.location.href = '/dashboard.html';
+                // super 管理员进入后台，其他账号跳转到聊天室
+                const username = (result.username || '').toLowerCase();
+                if (username === 'super') {
+                    window.location.href = '/dashboard.html';
+                } else {
+                    window.location.href = '/chat.html';
+                }
             } else {
                 messageEl.textContent = result.message || '用户名或密码错误';
                 messageEl.style.color = 'red';
@@ -142,8 +147,13 @@
             const result = await response.json();
 
             if (result.isAuthenticated) {
-                // 如果已有有效会话，直接跳转到dashboard
-                window.location.href = '/dashboard.html';
+                // 如果已有有效会话，根据用户名判断跳转目标
+                const username = (result.username || '').toLowerCase();
+                if (username === 'super') {
+                    window.location.href = '/dashboard.html';
+                } else {
+                    window.location.href = '/chat.html';
+                }
             }
         } catch (error) {
             console.error('检查会话错误:', error);
