@@ -26,14 +26,30 @@ public class Room {
 	private Set<String> userChannelIdSet = new CopyOnWriteArraySet<>();
 
 	public void addUser(ChannelId channelId){
-		if (this.userChannelIdSet.contains(channelId.asLongText())){
+		if (channelId == null) {
+			return;
+		}
+		String channelIdStr = channelId.asLongText();
+		if (!this.userChannelIdSet.contains(channelIdStr)){
+			this.userChannelIdSet.add(channelIdStr);
+			if (userNum == null) {
+				userNum = 0;
+			}
 			userNum++;
 		}
 	}
 
 	public void removeUser(ChannelId channelId){
+		if (channelId == null) {
+			return;
+		}
 		if (this.userChannelIdSet.remove(channelId.asLongText())){
-			userNum--;
+			if (userNum == null) {
+				userNum = 0;
+			}
+			if (userNum > 0) {
+				userNum--;
+			}
 		}
 	}
 }
