@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.entity.User;
 import com.stgd.voice.mapper.RoomMapper;
+import com.stgd.voice.ws.SystemLogPublisher;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelId;
@@ -48,6 +49,9 @@ public class ConnectManager {
 
 	@Autowired
 	private RoomMapper roomMapper;
+
+	@Autowired
+	private SystemLogPublisher logPublisher;
 
 	public void init(){
 		System.out.println("正在初始化房间...");
@@ -187,8 +191,16 @@ public class ConnectManager {
 				room.removeUser(sessionId);
 				if (userName != null) {
 					publishRoomSystem(roomId, userName + " 离开了房间");
+					if (logPublisher != null) {
+						logPublisher.publish("leave", userName, room.getName(),
+							userName + " 离开房间 [" + room.getName() + "]");
+					}
 				}
 			}
+		}
+		// 系统日志：登出
+		if (logPublisher != null && userName != null) {
+			logPublisher.publish("logout", userName, null, userName + " 登出系统");
 		}
 	}
 
@@ -197,8 +209,13 @@ public class ConnectManager {
 		if (sessionId == null || userName == null || userName.trim().isEmpty()) {
 			return null;
 		}
-		wsUserMap.put(sessionId, userName.trim());
-		return userName.trim();
+		String actualName = userName.trim();
+		wsUserMap.put(sessionId, actualName);
+		// 系统日志广播（dashboard 会显示）
+		if (logPublisher != null) {
+			logPublisher.publish("login", actualName, null, actualName + " 登录系统");
+		}
+		return actualName;
 	}
 
 	/** 获取 WebSocket 客户端的昵称 */
@@ -232,6 +249,11 @@ public class ConnectManager {
 		String userName = wsUserMap.get(sessionId);
 		if (userName != null) {
 			publishRoomSystem(targetRoomId, userName + " 加入了房间");
+			// 系统日志：加入房间（dashboard 会显示）
+			if (logPublisher != null) {
+				logPublisher.publish("join", userName, targetRoom.getName(),
+					userName + " 加入房间 [" + targetRoom.getName() + "]");
+			}
 		}
 		return targetRoom;
 	}

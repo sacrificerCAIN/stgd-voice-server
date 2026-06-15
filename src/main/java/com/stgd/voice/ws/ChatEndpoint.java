@@ -12,14 +12,6 @@ import javax.websocket.*;
 import javax.websocket.server.ServerEndpoint;
 import java.io.IOException;
 
-/**
- * WebSocket 聊天端点。
- * 客户端 chat.html 通过此端点与房间内其他用户通信。
- * 所有房间/用户/消息都通过 ConnectManager 统一管理，
- * 这样 TCP 客户端(Netty) 与浏览器客户端(WebSocket) 处于同一套房间系统。
- * 消息协议与 Netty TCP 文本通道保持一致：
- *   type: 1登录, 2心跳, 3房间消息, 4私聊, 5全服消息, 6加入房间, 7登出
- */
 @Component
 @ServerEndpoint("/ws/chat")
 public class ChatEndpoint {
@@ -30,8 +22,6 @@ public class ChatEndpoint {
     public void setConnectManager(ConnectManager cm) {
         connectManager = cm;
     }
-
-    // ==================== 连接生命周期 ====================
 
     @OnOpen
     public void onOpen(Session session) {
@@ -45,7 +35,6 @@ public class ChatEndpoint {
         if (connectManager != null) {
             connectManager.removeWsSession(session.getId());
         }
-        sendLogoutAck(session);
     }
 
     @OnError
@@ -79,9 +68,6 @@ public class ChatEndpoint {
         }
     }
 
-    // ==================== 业务处理（全部通过 ConnectManager ====================
-
-    /** 设置昵称 / 登录 */
     private void handleLogin(Session session, Message message) {
         if (connectManager == null) {
             sendSystem(session, "系统未就绪");
@@ -100,7 +86,6 @@ public class ChatEndpoint {
         sendJson(session, resp);
     }
 
-    /** 心跳 */
     private void handleIdle(Session session, Message message) {
         JSONObject resp = new JSONObject();
         resp.put("type", "idle");
@@ -108,7 +93,6 @@ public class ChatEndpoint {
         sendJson(session, resp);
     }
 
-    /** 加入房间 — 真正写入 ConnectManager 的 Room，更新 userNum */
     private void handleJoinRoom(Session session, Message message) {
         if (connectManager == null) {
             sendSystem(session, "系统未就绪");
@@ -137,7 +121,6 @@ public class ChatEndpoint {
         sendJson(session, resp);
     }
 
-    /** 房间消息 — 通过 ConnectManager 统一推送给房间内所有成员（含 Netty） */
     private void handleRoomMessage(Session session, Message message) {
         if (connectManager == null) {
             sendSystem(session, "系统未就绪");
@@ -158,7 +141,6 @@ public class ChatEndpoint {
         connectManager.publishRoomMessage(roomId, userName, payload);
     }
 
-    /** 私聊 — 支持发给 WebSocket 或 Netty 客户端 */
     private void handlePrivateMessage(Session session, Message message) {
         if (connectManager == null) {
             sendSystem(session, "系统未就绪");
@@ -179,7 +161,6 @@ public class ChatEndpoint {
         connectManager.sendWsPrivate(session.getId(), targetUserId, payload);
     }
 
-    /** 全服广播 — 简单推给所有 WebSocket 客户端 */
     private void handleBroadcast(Session session, Message message) {
         if (connectManager == null) {
             sendSystem(session, "系统未就绪");
@@ -198,7 +179,6 @@ public class ChatEndpoint {
         msg.put("payload", payload);
         msg.put("timestamp", System.currentTimeMillis());
         String text = msg.toJSONString();
-        // 向所有已打开的 WebSocket session 广播
         for (Session s : session.getOpenSessions()) {
             if (s.isOpen()) {
                 try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
@@ -206,15 +186,11 @@ public class ChatEndpoint {
         }
     }
 
-    /** 退出 — 从 ConnectManager 移除，并离开所在房间 */
     private void handleLogout(Session session) {
         if (connectManager != null) {
             connectManager.removeWsSession(session.getId());
         }
-        sendLogoutAck(session);
     }
-
-    // ==================== 辅助方法 ====================
 
     private void sendSystem(Session session, String text) {
         if (session == null || !session.isOpen()) return;
@@ -230,16 +206,6 @@ public class ChatEndpoint {
         if (session == null || !session.isOpen() || json == null) return;
         try {
             session.getBasicRemote().sendText(json.toJSONString());
-        } catch (IOException ignored) {}
-    }
-
-    private void sendLogoutAck(Session session) {
-        if (session == null || !session.isOpen()) return;
-        try {
-            JSONObject resp = new JSONObject();
-            resp.put("type", "logout");
-            resp.put("userId", session.getId());
-            session.getBasicRemote().sendText(resp.toJSONString());
         } catch (IOException ignored) {}
     }
 }
