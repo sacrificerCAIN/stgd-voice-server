@@ -144,6 +144,101 @@
             gap: 5px;
         }
 
+        /* 系统日志样式 */
+        .log-container {
+            max-width: 1200px;
+            margin: 20px auto 0;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .log-header h2 {
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .log-status {
+            font-size: 13px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: white;
+        }
+
+        .log-status.connected {
+            background-color: #4CAF50;
+        }
+
+        .log-status.disconnected {
+            background-color: #f44336;
+        }
+
+        .log-status.connecting {
+            background-color: #ff9800;
+        }
+
+        #logBox {
+            width: 100%;
+            height: 320px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #1e1e1e;
+            color: #e6e6e6;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            resize: vertical;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            cursor: default;
+            outline: none;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+        }
+
+        .log-entry .log-time {
+            color: #9cdcfe;
+        }
+
+        .log-entry .log-level {
+            color: #dcdcaa;
+            margin-right: 4px;
+        }
+
+        .log-entry.login .log-level { color: #4ec9b0; }
+        .log-entry.logout .log-level { color: #ce9178; }
+        .log-entry.join .log-level { color: #b5cea8; }
+        .log-entry.leave .log-level { color: #c586c0; }
+        .log-entry.room .log-level { color: #569cd6; }
+        .log-entry.system .log-level { color: #d7ba7d; }
+
+        .log-clear-btn {
+            padding: 4px 10px;
+            font-size: 12px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .log-clear-btn:hover {
+            background-color: #d32f2f;
+        }
+
         /* 弹窗样式 */
         .modal {
             display: none;
@@ -221,6 +316,18 @@
         <!-- 数据将通过JavaScript动态加载 -->
         </tbody>
     </table>
+</div>
+
+<!-- 系统日志 -->
+<div class="log-container">
+    <div class="log-header">
+        <h2>系统日志</h2>
+        <div>
+            <span id="wsStatus" class="log-status disconnected">未连接</span>
+            <button type="button" class="log-clear-btn" onclick="clearLog()">清空</button>
+        </div>
+    </div>
+    <textarea id="logBox" readonly></textarea>
 </div>
 
 <!-- 弹窗 -->
@@ -487,6 +594,135 @@
         document.getElementById('password').value = '';
     }
 
+    // ============ WebSocket 系统日志 ============
+    let systemLogSocket = null;
+    let reconnectTimer = null;
+    let reconnectDelay = 2000;
+    let maxReconnectDelay = 30000;
+    let manuallyClosed = false;
+
+    function setWsStatus(status, text) {
+        const el = document.getElementById('wsStatus');
+        if (!el) return;
+        el.className = 'log-status ' + status;
+        el.textContent = text;
+    }
+
+    function formatTime(ts) {
+        if (!ts) {
+            ts = Date.now();
+        }
+        const d = new Date(ts);
+        const pad = (n) => (n < 10 ? '0' + n : '' + n);
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+            ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+
+    function appendLog(level, msg, ts) {
+        const box = document.getElementById('logBox');
+        if (!box) return;
+        const line = '[' + formatTime(ts) + '] [' + level + '] ' + msg + '\n';
+        box.value += line;
+        // 自动滚动到底部
+        box.scrollTop = box.scrollHeight;
+    }
+
+    function clearLog() {
+        const box = document.getElementById('logBox');
+        if (box) box.value = '';
+    }
+
+    function connectSystemLog() {
+        manuallyClosed = false;
+        // 使用当前页面的协议/主机：http -> ws, https -> wss
+        const protocol = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+        const host = window.location.host || 'localhost:8080';
+        const url = protocol + '//' + host + '/ws/system-log';
+
+        try {
+            setWsStatus('connecting', '连接中...');
+            systemLogSocket = new WebSocket(url);
+        } catch (e) {
+            console.error('WebSocket 创建失败:', e);
+            setWsStatus('disconnected', '连接失败');
+            scheduleReconnect();
+            return;
+        }
+
+        systemLogSocket.onopen = function () {
+            reconnectDelay = 2000;
+            setWsStatus('connected', '已连接');
+            appendLog('SYSTEM', '已连接系统日志服务');
+            // 连接成功后立刻拉取一次最新房间列表
+            loadRooms();
+        };
+
+        systemLogSocket.onmessage = function (event) {
+            try {
+                const data = JSON.parse(event.data);
+                const level = (data.level || 'INFO').toUpperCase();
+                const msg = data.message || event.data;
+                const ts = data.timestamp || Date.now();
+                const type = (data.type || 'system').toLowerCase();
+
+                // 根据事件类型决定显示前缀
+                let prefix = '';
+                if (type === 'login') {
+                    if (data.userName) prefix = '[登录] ' + data.userName;
+                } else if (type === 'logout') {
+                    if (data.userName) prefix = '[登出] ' + data.userName;
+                } else if (type === 'join') {
+                    if (data.userName) {
+                        prefix = '[加入房间] ' + data.userName +
+                            (data.roomName ? ' -> ' + data.roomName : '');
+                    }
+                } else if (type === 'leave') {
+                    if (data.userName) {
+                        prefix = '[离开房间] ' + data.userName +
+                            (data.roomName ? ' <- ' + data.roomName : '');
+                    }
+                } else if (type === 'room') {
+                    // 房间增删改事件：触发刷新
+                    prefix = '[房间] ' + msg;
+                }
+
+                appendLog(level, prefix || msg, ts);
+
+                // 任何事件都可能引起房间在线人数变化，实时刷新
+                if (type === 'login' || type === 'logout' ||
+                    type === 'join' || type === 'leave' || type === 'room') {
+                    loadRooms();
+                }
+            } catch (e) {
+                // 如果不是 JSON，则作为普通文本追加
+                appendLog('INFO', event.data);
+            }
+        };
+
+        systemLogSocket.onerror = function (event) {
+            console.error('WebSocket 错误:', event);
+            setWsStatus('disconnected', '连接错误');
+        };
+
+        systemLogSocket.onclose = function (event) {
+            setWsStatus('disconnected', '已断开');
+            if (!manuallyClosed) {
+                appendLog('SYSTEM', '系统日志连接已断开，' + (reconnectDelay / 1000) + 's 后尝试重连...');
+                scheduleReconnect();
+            }
+        };
+    }
+
+    function scheduleReconnect() {
+        if (reconnectTimer) return;
+        reconnectTimer = setTimeout(function () {
+            reconnectTimer = null;
+            // 指数退避
+            reconnectDelay = Math.min(reconnectDelay * 2, maxReconnectDelay);
+            connectSystemLog();
+        }, reconnectDelay);
+    }
+
     async function init() {
         try {
             const response = await fetch('http://localhost:8080/login/checkSession', {
@@ -498,6 +734,12 @@
 
             if (result.isAuthenticated) {
                 loadRooms();
+                // 建立 WebSocket 连接接收系统日志
+                if (window.WebSocket) {
+                    connectSystemLog();
+                } else {
+                    appendLog('WARN', '当前浏览器不支持 WebSocket');
+                }
             }else {
                 // 如果没有有效会话，跳转到登录界面
                 alert('会话已过期，请重新登录');

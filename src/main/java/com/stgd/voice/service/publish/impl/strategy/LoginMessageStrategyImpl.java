@@ -5,6 +5,7 @@ import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.User;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.service.publish.MessagePublishStrategy;
+import com.stgd.voice.ws.SystemLogPublisher;
 import io.netty.channel.ChannelHandlerContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,10 @@ public class LoginMessageStrategyImpl implements MessagePublishStrategy {
 
 	@Autowired
 	private ConnectManager connectManager;
+
+	@Autowired
+	private SystemLogPublisher logPublisher;
+
 	@Override
 	public void handleMessage(ChannelHandlerContext ctx, Message message) {
 		User user = new User();
@@ -25,5 +30,7 @@ public class LoginMessageStrategyImpl implements MessagePublishStrategy {
 		user.setName(message.getUserName());
 		connectManager.addUser(user);
 		connectManager.publishOne(ctx, JSON.toJSONString(user) + "\n");
+		logPublisher.publish("login", user.getName(), null,
+				user.getName() + " 登录系统");
 	}
 }
