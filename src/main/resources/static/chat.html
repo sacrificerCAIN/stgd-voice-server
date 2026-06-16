@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>聊天室</title>
+  <title>stgd voice</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -100,10 +100,68 @@
       align-items: center;
       transition: background 0.2s;
     }
+    .room-list li .user-tree {
+      display: none;
+    }
+    .room-list li .room-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%; /* 新增，保证房间名+人数横向铺满 */
+    }
     .room-list li:hover { background: #e9ecef; }
     .room-list li.active { background: #4CAF50; color: #fff; }
     .room-list li .room-name { font-size: 14px; }
     .room-list li .room-count { font-size: 12px; opacity: 0.8; }
+    .room-list li .room-header .room-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .room-list li .user-tree ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .room-list li .user-tree li {
+      background: transparent;
+      padding: 4px 8px;
+      margin-bottom: 2px;
+      font-size: 13px;
+      cursor: default;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 4px;
+    }
+    .room-list li .user-tree li:hover { background: #eef5ff; }
+    .room-list li .user-tree li .avatar {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      line-height: 20px;
+      text-align: center;
+      border-radius: 50%;
+      background: #4CAF50;
+      color: #fff;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .room-list li .user-tree li .uname { flex: 1; }
+    .room-list li .user-tree li.self { background: #fff3cd; }
+    .room-list li .user-empty {
+      color: #aaa;
+      font-size: 12px;
+      padding: 4px 8px;
+      font-style: italic;
+    }
+    .room-user-item {
+      padding: 4px 16px;
+      font-size: 16px;
+    }
+    .room-user-item.self {
+      color: #ff9900;
+    }
     .chat-area {
       flex: 1;
       background: #fff;
@@ -186,7 +244,6 @@
 </head>
 <body>
 <div class="header">
-  <h1>💬 聊天室</h1>
   <div class="user-info">
     <span id="loginUser">-</span>
     <button class="logout-btn" onclick="logout()">退出</button>
@@ -202,7 +259,7 @@
     </div>
     <h2>房间列表</h2>
     <ul id="roomList" class="room-list">
-      <li>加载中...</li>
+      <li style="cursor:default;color:#999;">加载中...</li>
     </ul>
   </div>
   <div class="chat-area">
@@ -218,12 +275,17 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
 <script>
   let chatSocket = null;
   let currentUserId = null;
   let currentUserName = null;
   let currentRoomId = null;
   let currentRoomName = null;
+  // 当前所有房间的用户信息（roomId -> { id, name, users: [{userId,userName}] }）
+  let roomUserMap = {};
+  let hasTriggerUnload = false;
 
   async function init() {
     try {
@@ -234,7 +296,7 @@
         window.location.href = '/index.html';
         return;
       }
-      document.getElementById('loginUser').textContent = '账号: ' + (result.username || '未知');
+      document.getElementById('loginUser').textContent = (result.username || 'unknow');
       loadRooms();
       connectChat();
     } catch (e) {
@@ -247,7 +309,7 @@
   function setWsStatus(status, text) {
     const el = document.getElementById('wsStatus');
     el.className = 'status ' + status;
-    el.textContent = text;
+    el.textContent = 'websocket状态：' + text;
   }
 
   function connectChat() {
@@ -264,6 +326,10 @@
     chatSocket.onopen = function() {
       setWsStatus('connected', '已连接');
       addSystemMessage('聊天室已连接');
+      // 重新建立连接后，若已设置昵称则立即刷新一次房间-用户列表
+      if (currentUserName && chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+        try { chatSocket.send(JSON.stringify({ type: 8 })); } catch(e) {}
+      }
     };
     chatSocket.onmessage = function(event) {
       try {
@@ -288,10 +354,14 @@
     if (type === 'login') {
       currentUserId = data.userId;
       addSystemMessage('已登录为 ' + data.userName);
+      // 登录后立即请求一次全量的房间-用户列表
+      if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+        try { chatSocket.send(JSON.stringify({ type: 8 })); } catch(e) {}
+      }
     } else if (type === 'join') {
       currentRoomId = data.roomId;
       currentRoomName = data.roomName;
-      document.getElementById('chatHeader').textContent = '当前房间: ' + data.roomName;
+      document.getElementById('chatHeader').textContent = data.roomName;
       refreshRoomListHighlight();
       addSystemMessage('已加入房间 [' + data.roomName + ']');
     } else if (type === 'logout') {
@@ -305,7 +375,87 @@
       addMessage(data.fromUserName, data.payload, 'self', 'private');
     } else if (type === 'broadcast') {
       addMessage('[广播]' + data.userName, data.payload, 'other', 'broadcast');
+    } else if (type === 'roomUsers') {
+      handleRoomUsers(data);
+    } else if (type === 'userJoined') {
+      handleUserJoined(data);
+    } else if (type === 'userLeft') {
+      handleUserLeft(data);
     }
+  }
+
+  function handleRoomUsers(data) {
+    if (!data || !Array.isArray(data.rooms)) return;
+    const next = {};
+    data.rooms.forEach(r => {
+      if (!r || r.id == null) return;
+      next[r.id] = {
+        id: r.id,
+        name: r.name,
+        password: r.password || "",
+        userNum: r.userNum,
+        users: Array.isArray(r.users) ? r.users : []
+      };
+    });
+    roomUserMap = next;
+    renderRoomUsers();
+  }
+
+  function handleUserJoined(data) {
+    if (!data || data.roomId == null || !data.userId) return;
+    const room = roomUserMap[data.roomId];
+    if (!room) {
+      // 服务器可能还没推全量，这里先占位等待全量推送
+      return;
+    }
+    if (!room.users.find(u => u.userId === data.userId)) {
+      room.users.push({ userId: data.userId, userName: data.userName });
+      room.userNum = room.users.length;
+    }
+    renderRoomUsers();
+  }
+
+  function handleUserLeft(data) {
+    if (!data || data.roomId == null || !data.userId) return;
+    const room = roomUserMap[data.roomId];
+    if (!room) return;
+    room.users = room.users.filter(u => u.userId !== data.userId);
+    room.userNum = room.users.length;
+    renderRoomUsers();
+  }
+
+  function renderRoomUsers() {
+    const ul = document.getElementById('roomList');
+    // 先清空所有独立用户行（红字条目）
+    ul.querySelectorAll('.room-user-item').forEach(el => el.remove());
+
+    const lis = ul.querySelectorAll('li[data-room-id]');
+    lis.forEach(li => {
+      const rid = parseInt(li.dataset.roomId, 10);
+      const info = roomUserMap[rid];
+
+      // 更新房间头部人数
+      const header = li.querySelector('.room-header');
+      if (header) {
+        const cnt = header.querySelector('.room-count');
+        if (cnt && info) cnt.textContent = info.userNum + '人';
+      }
+
+      // 清空li内部残留的user-tree（防止旧DOM残留）
+      const tree = li.querySelector('.user-tree');
+      if(tree) tree.innerHTML = '';
+
+      // 在当前房间li的【后面】插入独立的用户行（红字，脱离绿色块）
+      if (!info || info.users.length === 0) return;
+      info.users.forEach(u => {
+        const userDiv = document.createElement('div');
+        userDiv.className = 'room-user-item';
+        if(u.userId === currentUserId) userDiv.classList.add('self');
+        userDiv.textContent = u.userName;
+        // 插入到房间li的下一个兄弟位置
+        li.after(userDiv);
+      });
+    });
   }
 
   function addMessage(userName, content, cls, extra) {
@@ -372,13 +522,36 @@
       rooms.forEach(room => {
         const li = document.createElement('li');
         li.dataset.roomId = room.id;
-        li.innerHTML = '<span class="room-name">' + (room.name || '房间' + room.id) +
+        const header = document.createElement('div');
+        header.className = 'room-header';
+        header.innerHTML =
+                '<span class="room-title">' +
+                '<span class="room-name">' + (room.name || '房间' + room.id) +
                 (room.password && room.password.length > 0 ? ' 🔒' : '') +
-                '</span><span class="room-count">' + (room.userNum || 0) + '人</span>';
-        li.onclick = function() { joinRoom(room.id); };
+                '</span>' +
+                '</span>' +
+                '<span class="room-count">' + (room.userNum || 0) + '人</span>';
+        li.appendChild(header);
+        // 用户列表永久显示，不再控制展开收起
+        const tree = document.createElement('div');
+        tree.className = 'user-tree';
+        li.appendChild(tree);
+        // 双击整行房间直接加入房间
+        li.addEventListener('dblclick', function(e) {
+          e.stopPropagation();
+          joinRoom(room.id);
+        });
         ul.appendChild(li);
       });
+      // 用户列表点击阻止冒泡，不触发房间双击
+      ul.addEventListener('click', function(e) {
+        const target = e.target;
+        if (target && target.closest && target.closest('.user-tree li')) {
+          e.stopPropagation();
+        }
+      });
       refreshRoomListHighlight();
+      renderRoomUsers();
     } catch (e) {
       console.error(e);
       document.getElementById('roomList').innerHTML = '<li>加载失败</li>';
@@ -401,8 +574,24 @@
       alert('请先设置昵称');
       return;
     }
+    // 取出当前房间信息
+    const roomInfo = Object.values(roomUserMap).find(r => r.id === roomId);
+    let pwd = '';
+    // 判断房间是否有密码
+    if (roomInfo && roomInfo.password && roomInfo.password.trim() !== '') {
+      pwd = prompt('请输入房间密码：');
+      // 用户点取消 / 输入空
+      if (pwd === null) {
+        return;
+      }
+    }
     if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-      chatSocket.send(JSON.stringify({ type: 6, targetRoomId: roomId }));
+      // 数据包带上password字段传给后端
+      chatSocket.send(JSON.stringify({
+        type: 6,
+        targetRoomId: roomId,
+        password: sha256(pwd).trim()
+      }));
     } else {
       alert('WebSocket 未连接');
     }
@@ -452,6 +641,33 @@
   setInterval(loadRooms, 30000);
 
   init();
+
+  // 主动离开当前房间
+  function leaveCurrentRoom() {
+    if (hasTriggerUnload || !currentRoomId || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
+    hasTriggerUnload = true;
+    // 发送离开房间指令，后端对应type自行替换，无对应type就注释这行
+    chatSocket.send(JSON.stringify({ type: 7, targetRoomId: currentRoomId }));
+  }
+
+  function sha256(message) {
+    const hash = CryptoJS.SHA256(message);
+    return hash.toString(CryptoJS.enc.Hex);
+  }
+
+  // 刷新/关闭弹窗确认，确认则离开房间
+  window.addEventListener('beforeunload', function(e) {
+    if (!currentRoomId) return;
+    const msg = '确定要刷新页面吗？将退出当前房间';
+    e.returnValue = msg;
+    return msg;
+  });
+  // 页面真正卸载时发送离房消息
+  window.addEventListener('unload', function() {
+    leaveCurrentRoom();
+  });
+
+
 </script>
 </body>
 </html>

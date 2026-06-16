@@ -79,7 +79,7 @@ public class NettyMain {
 							}
 						});
 
-				ChannelFuture udpFuture = null;
+				ChannelFuture udpFuture;
 				try {
 					udpFuture = udpBootstrap.bind(serverConfig.getUdpPort()).sync();
 					System.out.println("UDP服务启动成功，端口：" + serverConfig.getUdpPort());
@@ -108,7 +108,6 @@ public class NettyMain {
 			Thread.currentThread().interrupt();
 		} catch (Exception e) {
 			System.err.println("服务启动异常：" + e.getMessage());
-			e.printStackTrace();
 		} finally {
 			bossGroup.shutdownGracefully();
 			tcpGroup.shutdownGracefully();

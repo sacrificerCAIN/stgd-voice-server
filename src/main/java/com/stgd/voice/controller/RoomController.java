@@ -26,9 +26,9 @@ public class RoomController {
 	@PostMapping("insertRoom")
 	@ResponseBody
 	public Integer insertRoom(@RequestBody Room room) {
-		connectManager.addRoom(room);
 		Integer result = RoomMapper.insert(room);
-		if (result != null && result > 0) {
+		connectManager.addRoom(room);
+		if (result > 0) {
 			logPublisher.publish("room", null, room.getName(),
 				"新增房间 [" + room.getName() + "]");
 		}
@@ -41,7 +41,7 @@ public class RoomController {
 		String removedName = room.getName();
 		connectManager.removeRoom(room.getId());
 		Integer result = RoomMapper.deleteById(room.getId());
-		if (result != null && result > 0) {
+		if (result > 0) {
 			logPublisher.publish("room", null, removedName,
 				"删除房间 [" + (removedName != null ? removedName : "#" + room.getId()) + "]");
 		}
@@ -51,7 +51,7 @@ public class RoomController {
 	@PostMapping("updateRoom")
 	@ResponseBody
 	public Integer updateRoom(@RequestBody Room room) {
-		Integer result = RoomMapper.updateById(room);
+		int result = RoomMapper.updateById(room);
 		if (result == 1){
 			room.setUserNum(connectManager.findRoomById(room.getId()).getUserNum());
 			connectManager.addRoom(room);
@@ -64,7 +64,6 @@ public class RoomController {
 	@PostMapping("getAllRoom")
 	@ResponseBody
 	public List<Room> getAllRoom() {
-		List<Room> roomList = connectManager.getAllRoom();
-		return roomList;
+        return connectManager.getAllRoom();
 	}
 }

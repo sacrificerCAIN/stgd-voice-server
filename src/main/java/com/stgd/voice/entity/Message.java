@@ -23,6 +23,10 @@ public class Message {
 	 */
 	private Integer roomId;
 	/**
+	 * 房间密码
+	 */
+	private String password;
+	/**
 	 * 用户名
 	 */
 	private String userName;

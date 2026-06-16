@@ -2,6 +2,7 @@ package com.stgd.voice.ws;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.server.component.ConnectManager;
@@ -61,6 +62,7 @@ public class ChatEndpoint {
                 case 5: handleBroadcast(session, message); break;
                 case 6: handleJoinRoom(session, message); break;
                 case 7: handleLogout(session); break;
+                case 8: handleGetAllRoomUsers(session); break;
                 default: sendSystem(session, "未知消息类型");
             }
         } catch (Exception e) {
@@ -108,11 +110,23 @@ public class ChatEndpoint {
             sendSystem(session, "目标房间ID不能为空");
             return;
         }
-        Room room = connectManager.joinWsRoom(session.getId(), targetRoomId);
+        Room room = connectManager.getWsRoomById(targetRoomId);
         if (room == null) {
             sendSystem(session, "房间不存在");
             return;
         }
+        // 2. 密码校验逻辑
+        String roomPwd = room.getPassword();
+        String inputPwd = message.getPassword();
+        // 房间有密码
+        if (!StringUtils.isBlank(roomPwd)) {
+            // 用户没输入密码 / 密码不匹配
+            if (inputPwd == null || !inputPwd.equals(roomPwd)) {
+                sendSystem(session, "房间密码错误");
+                return;
+            }
+        }
+        connectManager.joinWsRoom(session.getId(), targetRoomId);
         JSONObject resp = new JSONObject();
         resp.put("type", "join");
         resp.put("roomId", targetRoomId);
@@ -190,6 +204,18 @@ public class ChatEndpoint {
         if (connectManager != null) {
             connectManager.removeWsSession(session.getId());
         }
+    }
+
+    /**
+     * 主动向所有已登录的 WebSocket 客户端广播当前全量的"房间-用户"信息，
+     * 用于客户端在侧栏以树形结构展示每个房间下的用户列表。
+     */
+    private void handleGetAllRoomUsers(Session session) {
+        if (connectManager == null) {
+            sendSystem(session, "系统未就绪");
+            return;
+        }
+        connectManager.broadcastAllRoomUsers();
     }
 
     private void sendSystem(Session session, String text) {

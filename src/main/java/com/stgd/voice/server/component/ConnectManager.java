@@ -195,6 +195,7 @@ public class ConnectManager {
 						logPublisher.publish("leave", userName, room.getName(),
 							userName + " 离开房间 [" + room.getName() + "]");
 					}
+					broadcastUserLeft(roomId, sessionId, userName);
 				}
 			}
 		}
@@ -202,6 +203,7 @@ public class ConnectManager {
 		if (logPublisher != null && userName != null) {
 			logPublisher.publish("logout", userName, null, userName + " 登出系统");
 		}
+		broadcastAllRoomUsers();
 	}
 
 	/** WebSocket 客户端设置昵称（类似 TCP 客户端 type=1 登录） */
@@ -215,12 +217,19 @@ public class ConnectManager {
 		if (logPublisher != null) {
 			logPublisher.publish("login", actualName, null, actualName + " 登录系统");
 		}
+		// 刷新在线用户列表
+		broadcastAllRoomUsers();
 		return actualName;
 	}
 
 	/** 获取 WebSocket 客户端的昵称 */
 	public String getWsUserName(String sessionId) {
 		return sessionId == null ? null : wsUserMap.get(sessionId);
+	}
+
+	/** WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见） */
+	public Room getWsRoomById(Integer targetRoomId) {
+		return roomMap.get(targetRoomId);
 	}
 
 	/** WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见） */
@@ -254,7 +263,9 @@ public class ConnectManager {
 				logPublisher.publish("join", userName, targetRoom.getName(),
 					userName + " 加入房间 [" + targetRoom.getName() + "]");
 			}
+			broadcastUserJoined(targetRoomId, sessionId, userName);
 		}
+		broadcastAllRoomUsers();
 		return targetRoom;
 	}
 
@@ -269,9 +280,11 @@ public class ConnectManager {
 				String userName = wsUserMap.get(sessionId);
 				if (userName != null) {
 					publishRoomSystem(roomId, userName + " 离开了房间");
+					broadcastUserLeft(roomId, sessionId, userName);
 				}
 			}
 		}
+		broadcastAllRoomUsers();
 	}
 
 	// ==================== 统一的房间消息推送（TCP + WebSocket） ====================
@@ -343,6 +356,87 @@ public class ConnectManager {
 				try {
 					session.getBasicRemote().sendText(wsText);
 				} catch (IOException ignored) {}
+			}
+		}
+	}
+
+	// ==================== 房间内用户广播（roomUsers / userJoined / userLeft） ====================
+
+	/**
+	 * 向所有已登录的 WebSocket 客户端广播全量 "房间-用户"信息。
+	 * 结构：
+	 *   {
+	 *     type: 'roomUsers',
+	 *     rooms: [
+	 *       { id, name, userNum, users: [{ userId, userName }, ...] },
+	 *       ...
+	 *     ]
+	 *   }
+	 */
+	public void broadcastAllRoomUsers() {
+		if (wsSessionMap.isEmpty()) return;
+		JSONObject root = new JSONObject();
+		root.put("type", "roomUsers");
+		List<JSONObject> roomArr = new java.util.ArrayList<>();
+		for (Room room : roomMap.values()) {
+			if (room == null) continue;
+			JSONObject rj = new JSONObject();
+			rj.put("id", room.getId());
+			rj.put("name", room.getName());
+			rj.put("password", room.getPassword());
+			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
+			List<JSONObject> userArr = new java.util.ArrayList<>();
+			Set<String> ids = room.getUserChannelIdSet();
+			if (ids != null) {
+				for (String idStr : ids) {
+					String un = wsUserMap.get(idStr);
+					if (un == null) continue;
+					JSONObject uj = new JSONObject();
+					uj.put("userId", idStr);
+					uj.put("userName", un);
+					userArr.add(uj);
+				}
+			}
+			rj.put("users", userArr);
+			roomArr.add(rj);
+		}
+		root.put("rooms", roomArr);
+		String text = root.toJSONString();
+		for (Session s : wsSessionMap.values()) {
+			if (s != null && s.isOpen()) {
+				try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
+			}
+		}
+	}
+
+	/** 向所有已登录 WebSocket 客户端广播：某用户加入了某房间 */
+	private void broadcastUserJoined(Integer roomId, String userId, String userName) {
+		if (roomId == null || userId == null) return;
+		JSONObject msg = new JSONObject();
+		msg.put("type", "userJoined");
+		msg.put("roomId", roomId);
+		msg.put("userId", userId);
+		msg.put("userName", userName);
+		String text = msg.toJSONString();
+		for (Session s : wsSessionMap.values()) {
+			if (s != null && s.isOpen()) {
+				try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
+			}
+		}
+	}
+
+	/** 向所有已登录 WebSocket 客户端广播：某用户离开了某房间 */
+	private void broadcastUserLeft(Integer roomId, String userId, String userName) {
+		if (roomId == null || userId == null) return;
+		JSONObject msg = new JSONObject();
+		msg.put("type", "userLeft");
+		msg.put("roomId", roomId);
+		msg.put("userId", userId);
+		msg.put("userName", userName);
+		String text = msg.toJSONString();
+		for (Session s : wsSessionMap.values()) {
+			if (s != null && s.isOpen()) {
+				try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
 			}
 		}
 	}
