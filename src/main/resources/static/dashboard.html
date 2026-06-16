@@ -38,6 +38,23 @@
             background-color: #d32f2f;
         }
 
+        .chat-btn {
+            position: absolute;
+            top: 30px;
+            right: 85px;
+            padding: 8px 15px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .chat-btn:hover {
+            background-color: #0b7dda;
+        }
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -292,6 +309,7 @@
 <body>
 <!-- 添加登出按钮容器 -->
 <div class="header-container">
+    <button class="chat-btn" onclick="gotoChat()">聊天室</button>
     <button class="logout-btn" onclick="confirmLogout()">登出</button>
 </div>
 
@@ -361,6 +379,11 @@
         if (confirm('确定要退出登录吗？')) {
             logout();
         }
+    }
+
+    // 跳转到chat页面
+    function gotoChat() {
+        window.location.href = '/chat.html';
     }
 
     // 登出函数
