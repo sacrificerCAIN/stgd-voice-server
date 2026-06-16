@@ -12,9 +12,9 @@ import io.netty.channel.ChannelId;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.util.concurrent.GlobalEventExecutor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.Resource;
 import javax.websocket.Session;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -26,6 +26,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * @author Hzzz
@@ -69,13 +71,19 @@ public class ConnectManager {
 	// sessionId -> 当前房间ID（用于离开时清理）
 	private static final ConcurrentHashMap<String, Integer> wsRoomMap = new ConcurrentHashMap<>();
 
+	// ============ WebSocket 消息推送队列（保证每个 Session 串行发送，避免 TEXT_FULL_WRITING） ============
+	// sessionId -> 待发送消息队列（每个 Session 独立一条队列）
+	private static final ConcurrentHashMap<String, LinkedBlockingQueue<String>> wsMessageQueues = new ConcurrentHashMap<>();
+	// sessionId -> 写标志（true = 已有写线程正在消费队列，false = 需要启动新的写线程）
+	private static final ConcurrentHashMap<String, AtomicBoolean> wsWritingFlags = new ConcurrentHashMap<>();
+
 	// ============ 房间管理 ============
 	private static final ConcurrentHashMap<Integer, Room> roomMap = new ConcurrentHashMap<>();
 
-	@Autowired
+	@Resource
 	private RoomMapper roomMapper;
 
-	@Autowired
+	@Resource
 	private SystemLogPublisher logPublisher;
 
 	public void init(){
@@ -141,7 +149,6 @@ public class ConnectManager {
 					Channel ch = channelGroup.find(channelId);
 					if (ch != null && ch.isActive()) {
 						ch.writeAndFlush("[系统]: 管理员解散了[" + room.getName() + "]\n");
-						continue;
 					}
 				}
 			}
@@ -264,7 +271,83 @@ public class ConnectManager {
 		if (logPublisher != null && userName != null) {
 			logPublisher.publish("logout", userName, null, userName + " 登出系统");
 		}
-		broadcastAllRoomUsers();
+		// 清理该 Session 的消息队列与写标志
+        wsMessageQueues.remove(sessionId);
+        wsWritingFlags.remove(sessionId);
+        broadcastAllRoomUsers();
+	}
+
+	// ==================== 统一的 WebSocket 消息推送（保证每个 Session 串行发送） ====================
+
+	/**
+	 * 统一发送 WebSocket 消息入口。
+	 * 核心保证：每个 Session 的消息永远串行发送，不会并发写入，彻底避免 TEXT_FULL_WRITING 异常。
+	 * 原理：
+	 *   1. 每个 Session 有独立的消息队列 wsMessageQueues
+	 *   2. 用 wsWritingFlags 的 CAS 控制「该 Session 是否已经有写线程在消费队列」
+	 *   3. 只有当没有写线程在工作时，才启动一个新的写线程到 BROADCAST_EXECUTOR
+	 */
+	public static void sendToWs(Session session, String text) {
+		if (session == null || text == null) return;
+		if (!session.isOpen()) return;
+
+		String sessionId = session.getId();
+
+		// 1. 获取/创建该 Session 的消息队列
+		LinkedBlockingQueue<String> queue = wsMessageQueues.computeIfAbsent(
+			sessionId, k -> new LinkedBlockingQueue<>()
+		);
+		// 2. 获取/创建该 Session 的写标志
+		AtomicBoolean writing = wsWritingFlags.computeIfAbsent(
+			sessionId, k -> new AtomicBoolean(false)
+		);
+
+		// 3. 把消息放入队列
+		queue.offer(text);
+
+		// 4. CAS 检查：如果当前没有写线程，就启动一个新的写线程消费队列
+		if (writing.compareAndSet(false, true)) {
+			BROADCAST_EXECUTOR.submit(() -> drainWsQueue(session, queue, writing));
+		}
+	}
+
+	/**
+	 * 写线程：循环从队列取消息，通过 getBasicRemote() 同步串行发送。
+	 * 单线程内调用 getBasicRemote() 是 100% 安全的，永远不会出现并发写入。
+	 */
+	private static void drainWsQueue(Session session, LinkedBlockingQueue<String> queue, AtomicBoolean writing) {
+		try {
+			while (true) {
+				String msg = queue.poll();
+				if (msg == null) {
+					// 队列已空，释放写标志
+					writing.set(false);
+					// 二次检查：如果在释放后又有新消息入队，需要重新启动写线程
+					if (!queue.isEmpty() && writing.compareAndSet(false, true)) {
+						continue;
+					}
+					return;
+				}
+				if (!session.isOpen()) {
+					// 连接关闭，清空队列并返回
+					queue.clear();
+					writing.set(false);
+					return;
+				}
+				// 单线程内调用 getBasicRemote() —— 永远不会并发冲突
+				try {
+					session.getBasicRemote().sendText(msg);
+				} catch (IOException ignored) {
+					// 发送失败通常意味着连接已断开，退出循环
+					queue.clear();
+					writing.set(false);
+					return;
+				}
+			}
+		} catch (Exception e) {
+			// 兜底：任何意外都释放写标志，避免永久死锁
+			writing.set(false);
+		}
 	}
 
 	/** WebSocket 客户端设置昵称（类似 TCP 客户端 type=1 登录） */
@@ -375,13 +458,6 @@ public class ConnectManager {
 
 		String nettyText = "[" + (userName == null ? "未知" : userName) + "]: " + (payload == null ? "" : payload) + "\n";
 
-		JSONObject wsJson = new JSONObject();
-		wsJson.put("type", "room");
-		wsJson.put("roomId", roomId);
-		wsJson.put("userName", userName);
-		wsJson.put("payload", payload);
-		wsJson.put("timestamp", System.currentTimeMillis());
-
 		for (String idStr : room.getUserChannelIdSet()) {
 			// 先尝试作为 Netty channelId 推送
 			ChannelId channelId = channelWithStringIdMap.get(idStr);
@@ -408,12 +484,11 @@ public class ConnectManager {
 		wsJson.put("timestamp", System.currentTimeMillis());
 		String wsText = wsJson.toJSONString();
 
+		// 通过统一的 sendToWs 推送，保证每个 Session 串行发送，不会阻塞调用线程也不会并发冲突
 		for (String idStr : room.getUserChannelIdSet()) {
 			Session session = wsSessionMap.get(idStr);
-			if (session != null && session.isOpen()) {
-				try {
-					session.getBasicRemote().sendText(wsText);
-				} catch (IOException ignored) {}
+			if (session != null) {
+				sendToWs(session, wsText);
 			}
 		}
 	}
@@ -433,6 +508,7 @@ public class ConnectManager {
 		String wsText = wsJson.toJSONString();
 
 		for (String idStr : room.getUserChannelIdSet()) {
+			// Netty：writeAndFlush 本身是异步的，由 Netty 内部管理，无需修改
 			ChannelId channelId = channelWithStringIdMap.get(idStr);
 			if (channelId != null) {
 				Channel ch = channelGroup.find(channelId);
@@ -441,11 +517,10 @@ public class ConnectManager {
 					continue;
 				}
 			}
+			// WebSocket：通过统一的 sendToWs() 入口，保证每个 Session 串行发送
 			Session session = wsSessionMap.get(idStr);
-			if (session != null && session.isOpen()) {
-				try {
-					session.getBasicRemote().sendText(wsText);
-				} catch (IOException ignored) {}
+			if (session != null) {
+				sendToWs(session, wsText);
 			}
 		}
 	}
@@ -498,8 +573,8 @@ public class ConnectManager {
 		root.put("rooms", roomArr);
 		String text = root.toJSONString();
 		for (Session s : wsSessionMap.values()) {
-			if (s != null && s.isOpen()) {
-				try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
+			if (s != null) {
+				sendToWs(s, text);
 			}
 		}
 	}
@@ -514,8 +589,8 @@ public class ConnectManager {
 		msg.put("userName", userName);
 		String text = msg.toJSONString();
 		for (Session s : wsSessionMap.values()) {
-			if (s != null && s.isOpen()) {
-				try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
+			if (s != null) {
+				sendToWs(s, text);
 			}
 		}
 	}
@@ -530,8 +605,8 @@ public class ConnectManager {
 		msg.put("userName", userName);
 		String text = msg.toJSONString();
 		for (Session s : wsSessionMap.values()) {
-			if (s != null && s.isOpen()) {
-				try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
+			if (s != null) {
+				sendToWs(s, text);
 			}
 		}
 	}
@@ -543,12 +618,11 @@ public class ConnectManager {
 
 	/** 直接向指定 WebSocket 会话发送 JSON 文本（用于登录响应、私聊等特定场景） */
 	public void sendWsOne(String sessionId, String text) {
-		if (sessionId == null) return;
+		if (sessionId == null || text == null) return;
 		Session session = wsSessionMap.get(sessionId);
-		if (session != null && session.isOpen()) {
-			try {
-				session.getBasicRemote().sendText(text);
-			} catch (IOException ignored) {}
+		if (session != null) {
+			// 通过统一入口发送，保证每个 Session 串行发送
+			sendToWs(session, text);
 		}
 	}
 
@@ -557,29 +631,17 @@ public class ConnectManager {
 		if (sourceSessionId == null || targetId == null) return;
 		String sourceName = wsUserMap.get(sourceSessionId);
 
-		// 先尝试目标是 WebSocket 客户端
 		Session targetSession = wsSessionMap.get(targetId);
-		if (targetSession != null && targetSession.isOpen()) {
+		if (targetSession != null) {
 			JSONObject json = new JSONObject();
 			json.put("type", "private");
 			json.put("fromUserName", sourceName == null ? "未知" : sourceName);
 			json.put("fromUserId", sourceSessionId);
 			json.put("payload", payload);
 			json.put("timestamp", System.currentTimeMillis());
-			try {
-				targetSession.getBasicRemote().sendText(json.toJSONString());
-			} catch (IOException ignored) {}
+			// 通过统一入口发送，保证每个 Session 串行发送
+			sendToWs(targetSession, json.toJSONString());
 			return;
-		}
-
-		// 再尝试目标是 Netty 客户端
-		ChannelId targetChannelId = channelWithStringIdMap.get(targetId);
-		if (targetChannelId != null) {
-			Channel ch = channelGroup.find(targetChannelId);
-			if (ch != null && ch.isActive()) {
-				ch.writeAndFlush("[" + (sourceName == null ? "未知" : sourceName) + "]对你说：" + (payload == null ? "" : payload) + "\n");
-				return;
-			}
 		}
 
 		// 对方不存在，告知发送方

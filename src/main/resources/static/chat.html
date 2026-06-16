@@ -397,6 +397,10 @@
         window.location.href = '/index.html';
         return;
       }
+      //请求房间
+      if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+        try { chatSocket.send(JSON.stringify({ type: 8 })); } catch(e) {}
+      }
       // 防止后端返回 null/undefined 时页面显示 "undefined"
       const safeUsername = (result.username && typeof result.username === 'string' && result.username.trim().length > 0)
               ? result.username.trim() : 'unknow';
@@ -460,6 +464,7 @@
     try {
       setWsStatus('connecting', '连接中...');
       chatSocket = new WebSocket(url);
+      setNickname();
     } catch (e) {
       setWsStatus('disconnected', '连接失败');
       return;
@@ -496,9 +501,9 @@
       currentUserId = data.userId;
       addSystemMessage('已登录为 ' + data.userName);
       // 登录后立即请求一次全量的房间-用户列表
-      if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-        try { chatSocket.send(JSON.stringify({ type: 8 })); } catch(e) {}
-      }
+      // if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+      //   try { chatSocket.send(JSON.stringify({ type: 8 })); } catch(e) {}
+      // }
     } else if (type === 'join') {
       currentRoomId = data.roomId;
       currentRoomName = data.roomName;

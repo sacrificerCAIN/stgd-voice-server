@@ -232,15 +232,13 @@ public class ChatEndpoint {
         msg.put("userName", userName);
         msg.put("payload", payload);
         msg.put("timestamp", System.currentTimeMillis());
-        final String text = msg.toJSONString();
-        // 全局广播提交到异步线程池，不阻塞当前 WebSocket 线程
-        ConnectManager.BROADCAST_EXECUTOR.submit(() -> {
-            for (Session s : session.getOpenSessions()) {
-                if (s.isOpen()) {
-                    s.getAsyncRemote().sendText(text);
-                }
+        String text = msg.toJSONString();
+        // 通过 ConnectManager 的统一入口发送，保证每个 Session 的消息永远串行发送
+        for (Session s : session.getOpenSessions()) {
+            if (s != null) {
+                ConnectManager.sendToWs(s, text);
             }
-        });
+        }
     }
 
     private void handleLogout(Session session) {
@@ -410,18 +408,18 @@ public class ChatEndpoint {
     }
 
     private void sendSystem(Session session, String text) {
-        if (session == null || !session.isOpen()) return;
+        if (session == null) return;
         JSONObject msg = new JSONObject();
         msg.put("type", "system");
         msg.put("payload", text);
-        // 单发消息直接异步发送，getAsyncRemote 本身就是非阻塞的
-        session.getAsyncRemote().sendText(msg.toJSONString());
+        // 通过 ConnectManager 的统一入口发送，保证每个 Session 的消息永远串行发送
+        ConnectManager.sendToWs(session, msg.toJSONString());
     }
 
     private void sendJson(Session session, JSONObject json) {
-        if (session == null || !session.isOpen() || json == null) return;
-        // 单发消息直接异步发送，getAsyncRemote 本身就是非阻塞的
-        session.getAsyncRemote().sendText(json.toJSONString());
+        if (session == null || json == null) return;
+        // 通过 ConnectManager 的统一入口发送，保证每个 Session 的消息永远串行发送
+        ConnectManager.sendToWs(session, json.toJSONString());
     }
 
     private String getHttpSessionId(Session session) {
