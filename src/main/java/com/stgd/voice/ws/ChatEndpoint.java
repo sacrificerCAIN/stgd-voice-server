@@ -3,6 +3,7 @@ package com.stgd.voice.ws;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.stgd.voice.config.HttpSessionConfigurator;
 import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.mapper.RoomMapper;
@@ -10,12 +11,13 @@ import com.stgd.voice.server.component.ConnectManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import javax.servlet.http.HttpSession;
 import javax.websocket.*;
 import javax.websocket.server.ServerEndpoint;
 import java.io.IOException;
 
 @Component
-@ServerEndpoint("/ws/chat")
+@ServerEndpoint(value = "/ws/chat", configurator = HttpSessionConfigurator.class)
 public class ChatEndpoint {
 
     private static ConnectManager connectManager;
@@ -184,13 +186,14 @@ public class ChatEndpoint {
             sendSystem(session, "请先设置昵称");
             return;
         }
+        String httpSessionId = getHttpSessionId(session);
         if (roomId == null) {
             sendSystem(session, "请先加入房间");
             return;
         }
         String payload = message.getPayload();
         if (payload == null) payload = "";
-        connectManager.publishRoomMessage(roomId, userName, payload);
+        connectManager.publishRoomMessageWs(roomId, userName, payload, httpSessionId);
     }
 
     private void handlePrivateMessage(Session session, Message message) {
@@ -420,5 +423,14 @@ public class ChatEndpoint {
         try {
             session.getBasicRemote().sendText(json.toJSONString());
         } catch (IOException ignored) {}
+    }
+
+    private String getHttpSessionId(Session session) {
+        HttpSession httpSession = (HttpSession) session.getUserProperties().get(HttpSession.class.getName());
+        String httpSessionId = null;
+        if (httpSession != null) {
+            httpSessionId = httpSession.getId();
+        }
+        return httpSessionId;
     }
 }

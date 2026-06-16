@@ -1,5 +1,6 @@
 package com.stgd.voice.ws;
 
+import com.stgd.voice.config.HttpSessionConfigurator;
 import org.springframework.stereotype.Component;
 
 import javax.websocket.OnClose;
@@ -16,7 +17,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
  * dashboard.html 仪表盘订阅 /ws/system-log 接收实时事件
  */
 @Component
-@ServerEndpoint("/ws/system-log")
+@ServerEndpoint(value = "/ws/system-log", configurator = HttpSessionConfigurator.class)
 public class SystemLogEndpoint {
 
     private static final Set<Session> SESSIONS = new CopyOnWriteArraySet<>();

@@ -352,7 +352,6 @@ public class ConnectManager {
 		wsJson.put("userName", userName);
 		wsJson.put("payload", payload);
 		wsJson.put("timestamp", System.currentTimeMillis());
-		String wsText = wsJson.toJSONString();
 
 		for (String idStr : room.getUserChannelIdSet()) {
 			// 先尝试作为 Netty channelId 推送
@@ -361,10 +360,26 @@ public class ConnectManager {
 				Channel ch = channelGroup.find(channelId);
 				if (ch != null && ch.isActive()) {
 					ch.writeAndFlush(nettyText);
-					continue;
-				}
+                }
 			}
-			// 再尝试作为 WebSocket sessionId 推送
+		}
+	}
+
+	public void publishRoomMessageWs(Integer roomId, String userName, String payload, String sessionId) {
+		if (roomId == null) return;
+		Room room = roomMap.get(roomId);
+		if (room == null) return;
+
+		JSONObject wsJson = new JSONObject();
+		wsJson.put("type", "room");
+		wsJson.put("roomId", roomId);
+		wsJson.put("sessionId", sessionId);
+		wsJson.put("userName", userName);
+		wsJson.put("payload", payload);
+		wsJson.put("timestamp", System.currentTimeMillis());
+		String wsText = wsJson.toJSONString();
+
+		for (String idStr : room.getUserChannelIdSet()) {
 			Session session = wsSessionMap.get(idStr);
 			if (session != null && session.isOpen()) {
 				try {
@@ -373,6 +388,7 @@ public class ConnectManager {
 			}
 		}
 	}
+
 
 	/** 向房间内所有成员发送一条系统提示（xxx 加入了房间 / xxx 离开了房间） */
 	public void publishRoomSystem(Integer roomId, String text) {

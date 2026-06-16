@@ -53,6 +53,7 @@ public class LoginController {
 			response.put("id", session.getAttribute("id"));
 			String username = (String) session.getAttribute("username");
 			response.put("username", username);
+			response.put("sessionId", session.getId());
 			// 只有 super 用户拥有房间增删改权限
 			response.put("isAdmin", "super".equals(username));
 		} else {

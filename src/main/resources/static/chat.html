@@ -334,6 +334,7 @@
 <script>
   let chatSocket = null;
   let currentUserId = null;
+  let currentSessionId = null;
   let currentUserName = null;
   let currentRoomId = null;
   let currentRoomName = null;
@@ -344,6 +345,30 @@
   // 当前所有房间的用户信息（roomId -> { id, name, users: [{userId,userName}] }）
   let roomUserMap = {};
   let hasTriggerUnload = false;
+
+  // Cookie工具
+  function setCookie(name, value, days = 30) {
+    const date = new Date();
+    date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+    const expires = "expires=" + date.toUTCString();
+    document.cookie = `${name}=${encodeURIComponent(value)};${expires};path=/`;
+  }
+
+  function getCookie(name) {
+    const cname = name + "=";
+    const cookieArr = document.cookie.split(';');
+    for(let i = 0; i < cookieArr.length; i++) {
+      let c = cookieArr[i].trim();
+      if (c.indexOf(cname) === 0) {
+        return decodeURIComponent(c.substring(cname.length, c.length));
+      }
+    }
+    return null;
+  }
+
+  function delCookie(name) {
+    setCookie(name, "", -1);
+  }
 
   async function init() {
     try {
@@ -356,17 +381,40 @@
       }
       // 防止后端返回 null/undefined 时页面显示 "undefined"
       const safeUsername = (result.username && typeof result.username === 'string' && result.username.trim().length > 0)
-        ? result.username.trim() : 'unknow';
+              ? result.username.trim() : 'unknow';
       document.getElementById('loginUser').textContent = safeUsername;
       // 保存真实登录用户名（非用户自定义昵称），用于权限校验
       currentLoginUser = safeUsername === 'unknow' ? null : safeUsername;
       // 根据后端返回的isAdmin决定是否显示管理功能
       isAdminUser = result.isAdmin === true;
+      currentSessionId = result.sessionId;
       if (isAdminUser) {
         var adminBox = document.getElementById('adminBox');
         if (adminBox) adminBox.style.display = 'block';
       }
-      connectChat();
+
+      const savedNick = getCookie("chatNickname");
+      if (savedNick && savedNick.trim() !== "") {
+        // 把cookie里的昵称填入输入框
+        document.getElementById("nickname").value = savedNick;
+        // 等待websocket连接成功后自动执行设置昵称
+        function autoSetNickWhenConnected() {
+          if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+            setNickname();
+          } else {
+            // 未连接，延迟100ms重试
+            setTimeout(autoSetNickWhenConnected, 100);
+          }
+        }
+        // 连接ws
+        connectChat();
+        // 启动自动设置轮询
+        autoSetNickWhenConnected();
+      } else {
+        // 没有保存的昵称，正常连接ws
+        connectChat();
+      }
+
       // 房间列表将通过 WebSocket 推送
     } catch (e) {
       console.error(e);
@@ -442,7 +490,7 @@
     } else if (type === 'system') {
       addSystemMessage(data.payload);
     } else if (type === 'room') {
-      const isSelf = data.userName === currentUserName;
+      const isSelf = data.sessionId === currentSessionId;
       addMessage(data.userName, data.payload, isSelf ? 'self' : 'other', 'room');
     } else if (type === 'private') {
       addMessage(data.fromUserName, data.payload, 'self', 'private');
@@ -861,6 +909,8 @@
       alert('昵称不能为空');
       return;
     }
+    // 存入Cookie，有效期30天
+    setCookie("chatNickname", nickname, 30);
     if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
       currentUserName = nickname;
       chatSocket.send(JSON.stringify({ type: 1, userName: nickname }));
