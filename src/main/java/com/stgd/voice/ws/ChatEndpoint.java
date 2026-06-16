@@ -5,7 +5,9 @@ import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.Room;
+import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.server.component.ConnectManager;
+import com.stgd.voice.ws.SystemLogPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -18,31 +20,40 @@ import java.io.IOException;
 public class ChatEndpoint {
 
     private static ConnectManager connectManager;
+    private static RoomMapper roomMapper;
+    private static SystemLogPublisher logPublisher;
 
     @Autowired
     public void setConnectManager(ConnectManager cm) {
         connectManager = cm;
     }
 
+    @Autowired
+    public void setRoomMapper(RoomMapper rm) {
+        roomMapper = rm;
+    }
+
+    @Autowired
+    public void setLogPublisher(SystemLogPublisher lp) {
+        logPublisher = lp;
+    }
+
     @OnOpen
     public void onOpen(Session session) {
-        if (connectManager != null) {
-            connectManager.addWsSession(session);
-        }
+        connectManager.addWsSession(session);
+        // 新连接建立时，立即推送一次房间列表
+        connectManager.broadcastRoomList();
     }
 
     @OnClose
     public void onClose(Session session) {
-        if (connectManager != null) {
-            connectManager.removeWsSession(session.getId());
-        }
+        connectManager.removeWsSession(session.getId());
+        connectManager.broadcastAllRoomUsers();
     }
 
     @OnError
     public void onError(Session session, Throwable throwable) {
-        if (connectManager != null) {
-            connectManager.removeWsSession(session.getId());
-        }
+        connectManager.removeWsSession(session.getId());
     }
 
     @OnMessage
@@ -63,6 +74,10 @@ public class ChatEndpoint {
                 case 6: handleJoinRoom(session, message); break;
                 case 7: handleLogout(session); break;
                 case 8: handleGetAllRoomUsers(session); break;
+                case 9: handleGetRoomList(session); break;
+                case 10: handleInsertRoom(session, message); break;
+                case 11: handleRemoveRoom(session, message); break;
+                case 12: handleUpdateRoom(session, message); break;
                 default: sendSystem(session, "未知消息类型");
             }
         } catch (Exception e) {
@@ -133,6 +148,7 @@ public class ChatEndpoint {
         resp.put("roomName", room.getName());
         resp.put("userNum", room.getUserNum());
         sendJson(session, resp);
+        connectManager.broadcastAllRoomUsers();
     }
 
     private void handleRoomMessage(Session session, Message message) {
@@ -201,9 +217,8 @@ public class ChatEndpoint {
     }
 
     private void handleLogout(Session session) {
-        if (connectManager != null) {
-            connectManager.removeWsSession(session.getId());
-        }
+        connectManager.removeWsSession(session.getId());
+        connectManager.broadcastAllRoomUsers();
     }
 
     /**
@@ -216,6 +231,141 @@ public class ChatEndpoint {
             return;
         }
         connectManager.broadcastAllRoomUsers();
+    }
+
+    /**
+     * 处理：主动拉取房间列表（type 9）
+     */
+    private void handleGetRoomList(Session session) {
+        connectManager.broadcastRoomList();
+    }
+
+    /**
+     * 处理：添加房间（type 10）
+     * 消息体：{ type: 10, name: "房间名", password: "可选密码(sha256加密后)" }
+     */
+    private void handleInsertRoom(Session session, Message message) {
+        String userName = connectManager.getWsUserName(session.getId());
+        if (userName == null) {
+            sendSystem(session, "请先设置昵称");
+            return;
+        }
+        // 权限校验：只有 super 用户可以添加房间
+        if (!"super".equals(userName)) {
+            sendSystem(session, "没有权限添加房间");
+            return;
+        }
+        String roomName = message.getRoomName();
+        if (roomName == null || roomName.trim().isEmpty()) {
+            sendSystem(session, "房间名称不能为空");
+            return;
+        }
+        Room room = new Room();
+        room.setName(roomName.trim());
+        String pwd = message.getPassword();
+        if (pwd != null && !pwd.trim().isEmpty()) {
+            room.setPassword(pwd.trim());
+        }
+        room.setUserNum(0);
+        // 保存到数据库
+        int dbResult = roomMapper.insert(room);
+        // 添加到内存
+        connectManager.addRoom(room);
+        if (dbResult > 0) {
+            sendSystem(session, "房间 [" + room.getName() + "] 添加成功");
+            logPublisher.publish("room", null, room.getName(),
+                userName + " 通过 WebSocket 添加了房间 [" + room.getName() + "]");
+        } else {
+            sendSystem(session, "房间添加失败");
+        }
+    }
+
+    /**
+     * 处理：删除房间（type 11）
+     * 消息体：{ type: 11, id: 房间ID }
+     */
+    private void handleRemoveRoom(Session session, Message message) {
+        String userName = connectManager.getWsUserName(session.getId());
+        if (userName == null) {
+            sendSystem(session, "请先设置昵称");
+            return;
+        }
+        // 权限校验：只有 super 用户可以删除房间
+        if (!"super".equals(userName)) {
+            sendSystem(session, "没有权限删除房间");
+            return;
+        }
+        Integer roomId = message.getRoomId();
+        if (roomId == null) {
+            sendSystem(session, "房间ID不能为空");
+            return;
+        }
+        Room room = connectManager.findRoomById(roomId);
+        String removedName = room != null ? room.getName() : ("房间#" + roomId);
+        // 从内存移除（会广播给所有客户端）
+        connectManager.removeRoom(roomId);
+        // 从数据库移除
+        int dbResult = roomMapper.deleteById(roomId);
+        if (dbResult > 0) {
+            sendSystem(session, "房间 [" + removedName + "] 已删除");
+            logPublisher.publish("room", null, removedName,
+                userName + " 通过 WebSocket 删除了房间 [" + removedName + "]");
+        } else {
+            sendSystem(session, "房间删除失败（数据库中可能不存在）");
+        }
+    }
+
+    /**
+     * 处理：更新房间（type 12）
+     * 消息体：{ type: 12, id: 房间ID, name: "新名称", password: "新密码(sha256加密后)" }
+     */
+    private void handleUpdateRoom(Session session, Message message) {
+        String userName = connectManager.getWsUserName(session.getId());
+        if (userName == null) {
+            sendSystem(session, "请先设置昵称");
+            return;
+        }
+        // 权限校验：只有 super 用户可以更新房间
+        if (!"super".equals(userName)) {
+            sendSystem(session, "没有权限更新房间");
+            return;
+        }
+        Integer roomId = message.getRoomId();
+        if (roomId == null) {
+            sendSystem(session, "房间ID不能为空");
+            return;
+        }
+        Room existRoom = connectManager.findRoomById(roomId);
+        if (existRoom == null) {
+            sendSystem(session, "房间不存在");
+            return;
+        }
+        Room updateRoom = new Room();
+        updateRoom.setId(roomId);
+        String newName = message.getRoomName();
+        if (newName != null && !newName.trim().isEmpty()) {
+            updateRoom.setName(newName.trim());
+        } else {
+            updateRoom.setName(existRoom.getName());
+        }
+        String pwd = message.getPassword();
+        if (pwd != null) {
+            updateRoom.setPassword(pwd.trim());
+        } else {
+            updateRoom.setPassword(existRoom.getPassword());
+        }
+        updateRoom.setUserNum(existRoom.getUserNum());
+        // 更新数据库
+        int dbResult = roomMapper.updateById(updateRoom);
+        // 更新内存
+        connectManager.addRoom(updateRoom);
+        if (dbResult > 0) {
+            sendSystem(session, "房间 [" + updateRoom.getName() + "] 更新成功");
+            logPublisher.publish("room", null, updateRoom.getName(),
+                userName + " 通过 WebSocket 更新了房间 [" + updateRoom.getName() + "]");
+        } else {
+            sendSystem(session, "房间更新失败");
+        }
     }
 
     private void sendSystem(Session session, String text) {

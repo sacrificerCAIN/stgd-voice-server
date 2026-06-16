@@ -43,8 +43,39 @@
       padding: 16px;
       gap: 16px;
     }
+    .admin-box {
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eee;
+    }
+    .admin-box h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #666;
+    }
+    .admin-box .admin-input {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .admin-box .admin-btn {
+      padding: 6px 10px;
+      font-size: 12px;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 4px;
+      margin-top: 4px;
+    }
+    .admin-btn.add { background: #4CAF50; }
+    .admin-btn.edit { background: #2196F3; }
+    .admin-btn.delete { background: #f44336; }
     .sidebar {
-      width: 260px;
+      width: 280px;
       background: #fff;
       border-radius: 8px;
       padding: 16px;
@@ -97,9 +128,29 @@
       cursor: pointer;
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       transition: background 0.2s;
+      flex-direction: column;
     }
+    .room-list li .room-content {
+      width: 100%;
+    }
+    .room-list li .room-actions {
+      display: flex;
+      gap: 4px;
+      margin-top: 6px;
+      opacity: 0.8;
+    }
+    .room-list li .room-actions button {
+      padding: 3px 8px;
+      font-size: 11px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      color: #fff;
+    }
+    .room-list li .room-actions .btn-edit { background: #2196F3; }
+    .room-list li .room-actions .btn-delete { background: #f44336; }
     .room-list li .user-tree {
       display: none;
     }
@@ -205,8 +256,6 @@
     .message.other .content { background: #fff; border: 1px solid #eee; color: #333; }
     .message.private .meta { color: #9b59b6; }
     .message.private .content { background: #9b59b6; color: #fff; }
-    .message.broadcast .meta { color: #e67e22; }
-    .message.broadcast .content { background: #e67e22; color: #fff; }
     .input-area {
       padding: 12px;
       border-top: 1px solid #eee;
@@ -257,6 +306,12 @@
       <input type="text" id="nickname" placeholder="请输入昵称">
       <button onclick="setNickname()">设置昵称</button>
     </div>
+    <div class="admin-box" id="adminBox" style="display:none">
+      <h2>房间管理</h2>
+      <input type="text" id="adminRoomName" class="admin-input" placeholder="房间名称">
+      <input type="text" id="adminRoomPassword" class="admin-input" placeholder="房间密码（可选）">
+      <button class="admin-btn add" onclick="wsInsertRoom()">添加房间</button>
+    </div>
     <h2>房间列表</h2>
     <ul id="roomList" class="room-list">
       <li style="cursor:default;color:#999;">加载中...</li>
@@ -269,7 +324,6 @@
       <textarea id="messageInput" placeholder="输入消息... (Enter发送, Shift+Enter换行)"></textarea>
       <div class="btns">
         <button id="sendBtn" onclick="sendMessage()">发送</button>
-        <button id="broadcastBtn" class="broadcast" onclick="sendBroadcast()">广播</button>
       </div>
     </div>
   </div>
@@ -283,6 +337,8 @@
   let currentUserName = null;
   let currentRoomId = null;
   let currentRoomName = null;
+  // 是否为管理员（拥有房间增删改权限），默认false
+  let isAdminUser = false;
   // 当前所有房间的用户信息（roomId -> { id, name, users: [{userId,userName}] }）
   let roomUserMap = {};
   let hasTriggerUnload = false;
@@ -297,8 +353,14 @@
         return;
       }
       document.getElementById('loginUser').textContent = (result.username || 'unknow');
-      loadRooms();
+      // 根据后端返回的isAdmin决定是否显示管理功能
+      isAdminUser = result.isAdmin === true;
+      if (isAdminUser) {
+        var adminBox = document.getElementById('adminBox');
+        if (adminBox) adminBox.style.display = 'block';
+      }
       connectChat();
+      // 房间列表将通过 WebSocket 推送
     } catch (e) {
       console.error(e);
       alert('会话验证失败，请重新登录');
@@ -375,6 +437,8 @@
       addMessage(data.fromUserName, data.payload, 'self', 'private');
     } else if (type === 'broadcast') {
       addMessage('[广播]' + data.userName, data.payload, 'other', 'broadcast');
+    } else if (type === 'roomList') {
+      handleRoomList(data);
     } else if (type === 'roomUsers') {
       handleRoomUsers(data);
     } else if (type === 'userJoined') {
@@ -382,6 +446,282 @@
     } else if (type === 'userLeft') {
       handleUserLeft(data);
     }
+  }
+
+  // WebSocket推送的房间列表处理
+  function handleRoomList(data) {
+    if (!data || !Array.isArray(data.rooms)) return;
+    const rooms = data.rooms;
+    renderRoomListFromWs(rooms);
+  }
+
+  // 从WebSocket数据渲染房间列表（替代原HTTP方式）
+  function renderRoomListFromWs(rooms) {
+    const ul = document.getElementById('roomList');
+    ul.innerHTML = '';
+    if (!rooms || rooms.length === 0) {
+      ul.innerHTML = '<li style="cursor:default;color:#999">暂无房间</li>';
+      return;
+    }
+    rooms.forEach(room => {
+      const li = document.createElement('li');
+      li.dataset.roomId = room.id;
+      const header = document.createElement('div');
+      header.className = 'room-header';
+      header.innerHTML =
+              '<span class="room-title">' +
+              '<span class="room-name">' + (room.name || '房间' + room.id) +
+              (room.password && room.password.length > 0 ? ' 🔒' : '') +
+              '</span>' +
+              '</span>' +
+              '<span class="room-count">' + (room.userNum || 0) + '人</span>';
+      li.appendChild(header);
+      // 用户列表容器
+      const tree = document.createElement('div');
+      tree.className = 'user-tree';
+      li.appendChild(tree);
+      // 管理员操作按钮（只有 super 用户可见）
+      if (isAdminUser) {
+        const actions = document.createElement('div');
+        actions.className = 'room-actions';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn-edit';
+        editBtn.textContent = '编辑';
+        editBtn.onclick = function(e) {
+          e.stopPropagation();
+          promptUpdateRoom(room);
+        };
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn-delete';
+        deleteBtn.textContent = '删除';
+        deleteBtn.onclick = function(e) {
+          e.stopPropagation();
+          confirmWsRemoveRoom(room);
+        };
+        actions.appendChild(editBtn);
+        actions.appendChild(deleteBtn);
+        li.appendChild(actions);
+      }
+      // 双击整行房间直接加入房间
+      li.addEventListener('dblclick', function(e) {
+        e.stopPropagation();
+        joinRoom(room.id);
+      });
+      ul.appendChild(li);
+    });
+    refreshRoomListHighlight();
+    renderRoomUsers();
+  }
+
+  // WebSocket:添加房间
+  function wsInsertRoom() {
+    if (!isAdminUser) {
+      alert('没有管理员权限');
+      return;
+    }
+    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+      alert('WebSocket 未连接');
+      return;
+    }
+    const name = document.getElementById('adminRoomName').value.trim();
+    const pwdRaw = document.getElementById('adminRoomPassword').value.trim();
+    if (!name) {
+      alert('房间名称不能为空');
+      return;
+    }
+    const password = pwdRaw ? sha256(pwdRaw) : '';
+    chatSocket.send(JSON.stringify({
+      type: 10,
+      roomName: name,
+      password: password
+    }));
+    document.getElementById('adminRoomName').value = '';
+    document.getElementById('adminRoomPassword').value = '';
+  }
+
+  // WebSocket:更新房间
+  function wsUpdateRoom(roomId, name, password) {
+    if (!isAdminUser) {
+      alert('没有管理员权限');
+      return;
+    }
+    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+      alert('WebSocket 未连接');
+      return;
+    }
+    chatSocket.send(JSON.stringify({
+      type: 12,
+      roomId: roomId,
+      roomName: name,
+      password: password
+    }));
+  }
+
+  // WebSocket:删除房间
+  function wsRemoveRoom(roomId) {
+    if (!isAdminUser) {
+      alert('没有管理员权限');
+      return;
+    }
+    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+      alert('WebSocket 未连接');
+      return;
+    }
+    chatSocket.send(JSON.stringify({
+      type: 11,
+      roomId: roomId
+    }));
+  }
+
+  // 弹出框:确认删除房间
+  function confirmWsRemoveRoom(room) {
+    if (!confirm('确定要删除房间 [" + (room.name || "房间" + room.id) + "] 吗？')) return;
+    wsRemoveRoom(room.id);
+  }
+
+  // 弹出框:编辑房间
+  function promptUpdateRoom(room) {
+    const newName = prompt('请输入新的房间名称：', room.name || '');
+    if (newName === null) return;
+    if (!newName.trim()) {
+      alert('房间名称不能为空');
+      return;
+    }
+    const newPwdRaw = prompt('请输入新的房间密码（留空则无密码）：', '');
+    if (newPwdRaw === null) return;
+    const password = newPwdRaw.trim() ? sha256(newPwdRaw.trim()) : '';
+    wsUpdateRoom(room.id, newName.trim(), password);
+  }
+
+  // WebSocket推送的房间列表处理
+  function handleRoomList(data) {
+    if (!data || !Array.isArray(data.rooms)) return;
+    const rooms = data.rooms;
+    renderRoomListFromWs(rooms);
+  }
+
+  // 从WebSocket数据渲染房间列表（替代原HTTP方式）
+  function renderRoomListFromWs(rooms) {
+    const ul = document.getElementById('roomList');
+    ul.innerHTML = '';
+    if (!rooms || rooms.length === 0) {
+      ul.innerHTML = '<li style="cursor:default;color:#999">暂无房间</li>';
+      return;
+    }
+    rooms.forEach(room => {
+      const li = document.createElement('li');
+      li.dataset.roomId = room.id;
+      const header = document.createElement('div');
+      header.className = 'room-header';
+      header.innerHTML =
+              '<span class="room-title">' +
+              '<span class="room-name">' + (room.name || '房间' + room.id) +
+              (room.password && room.password.length > 0 ? ' 🔒' : '') +
+              '</span>' +
+              '</span>' +
+              '<span class="room-count">' + (room.userNum || 0) + '人</span>';
+      li.appendChild(header);
+      // 用户列表容器
+      const tree = document.createElement('div');
+      tree.className = 'user-tree';
+      li.appendChild(tree);
+      // 管理员操作按钮
+      const actions = document.createElement('div');
+      actions.className = 'room-actions';
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn-edit';
+      editBtn.textContent = '编辑';
+      editBtn.onclick = function(e) {
+        e.stopPropagation();
+        promptUpdateRoom(room);
+      };
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn-delete';
+      deleteBtn.textContent = '删除';
+      deleteBtn.onclick = function(e) {
+        e.stopPropagation();
+        confirmWsRemoveRoom(room);
+      };
+      actions.appendChild(editBtn);
+      actions.appendChild(deleteBtn);
+      li.appendChild(actions);
+      // 双击整行房间直接加入房间
+      li.addEventListener('dblclick', function(e) {
+        e.stopPropagation();
+        joinRoom(room.id);
+      });
+      ul.appendChild(li);
+    });
+    refreshRoomListHighlight();
+    renderRoomUsers();
+  }
+
+  // WebSocket:添加房间
+  function wsInsertRoom() {
+    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+      alert('WebSocket 未连接');
+      return;
+    }
+    const name = document.getElementById('adminRoomName').value.trim();
+    const pwdRaw = document.getElementById('adminRoomPassword').value.trim();
+    if (!name) {
+      alert('房间名称不能为空');
+      return;
+    }
+    const password = pwdRaw ? sha256(pwdRaw) : '';
+    chatSocket.send(JSON.stringify({
+      type: 10,
+      roomName: name,
+      password: password
+    }));
+    document.getElementById('adminRoomName').value = '';
+    document.getElementById('adminRoomPassword').value = '';
+  }
+
+  // WebSocket:更新房间
+  function wsUpdateRoom(roomId, name, password) {
+    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+      alert('WebSocket 未连接');
+      return;
+    }
+    chatSocket.send(JSON.stringify({
+      type: 12,
+      roomId: roomId,
+      roomName: name,
+      password: password
+    }));
+  }
+
+  // WebSocket:删除房间
+  function wsRemoveRoom(roomId) {
+    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+      alert('WebSocket 未连接');
+      return;
+    }
+    chatSocket.send(JSON.stringify({
+      type: 11,
+      roomId: roomId
+    }));
+  }
+
+  // 弹出框:确认删除房间
+  function confirmWsRemoveRoom(room) {
+    if (!confirm('确定要删除房间 [" + (room.name || "房间" + room.id) + "] 吗？')) return;
+    wsRemoveRoom(room.id);
+  }
+
+  // 弹出框:编辑房间
+  function promptUpdateRoom(room) {
+    const newName = prompt('请输入新的房间名称：', room.name || '');
+    if (newName === null) return;
+    if (!newName.trim()) {
+      alert('房间名称不能为空');
+      return;
+    }
+    const newPwdRaw = prompt('请输入新的房间密码（留空则无密码）：', '');
+    if (newPwdRaw === null) return;
+    const password = newPwdRaw.trim() ? sha256(newPwdRaw.trim()) : '';
+    wsUpdateRoom(room.id, newName.trim(), password);
   }
 
   function handleRoomUsers(data) {
@@ -504,57 +844,15 @@
     }
   }
 
-  async function loadRooms() {
-    try {
-      const resp = await fetch('/room/getAllRoom', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: '{}'
-      });
-      const rooms = await resp.json();
-      const ul = document.getElementById('roomList');
-      ul.innerHTML = '';
-      if (!rooms || rooms.length === 0) {
-        ul.innerHTML = '<li style="cursor:default;color:#999">暂无房间</li>';
-        return;
+  // 房间列表现在通过 WebSocket 自动推送，不再需要 HTTP 请求
+  // 保留此函数作为兼容性兜底（通过 WebSocket type 9 请求刷新）
+  function loadRooms() {
+    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+      try {
+        chatSocket.send(JSON.stringify({ type: 9 }));
+      } catch (e) {
+        console.error('请求房间列表失败:', e);
       }
-      rooms.forEach(room => {
-        const li = document.createElement('li');
-        li.dataset.roomId = room.id;
-        const header = document.createElement('div');
-        header.className = 'room-header';
-        header.innerHTML =
-                '<span class="room-title">' +
-                '<span class="room-name">' + (room.name || '房间' + room.id) +
-                (room.password && room.password.length > 0 ? ' 🔒' : '') +
-                '</span>' +
-                '</span>' +
-                '<span class="room-count">' + (room.userNum || 0) + '人</span>';
-        li.appendChild(header);
-        // 用户列表永久显示，不再控制展开收起
-        const tree = document.createElement('div');
-        tree.className = 'user-tree';
-        li.appendChild(tree);
-        // 双击整行房间直接加入房间
-        li.addEventListener('dblclick', function(e) {
-          e.stopPropagation();
-          joinRoom(room.id);
-        });
-        ul.appendChild(li);
-      });
-      // 用户列表点击阻止冒泡，不触发房间双击
-      ul.addEventListener('click', function(e) {
-        const target = e.target;
-        if (target && target.closest && target.closest('.user-tree li')) {
-          e.stopPropagation();
-        }
-      });
-      refreshRoomListHighlight();
-      renderRoomUsers();
-    } catch (e) {
-      console.error(e);
-      document.getElementById('roomList').innerHTML = '<li>加载失败</li>';
     }
   }
 
@@ -636,9 +934,6 @@
       window.location.href = '/index.html';
     });
   }
-
-  // 定时刷新房间列表（每30秒）
-  setInterval(loadRooms, 30000);
 
   init();
 

@@ -28,6 +28,7 @@ public class RoomController {
 	public Integer insertRoom(@RequestBody Room room) {
 		Integer result = RoomMapper.insert(room);
 		connectManager.addRoom(room);
+		connectManager.broadcastRoomList();
 		if (result > 0) {
 			logPublisher.publish("room", null, room.getName(),
 				"新增房间 [" + room.getName() + "]");
@@ -41,6 +42,8 @@ public class RoomController {
 		String removedName = room.getName();
 		connectManager.removeRoom(room.getId());
 		Integer result = RoomMapper.deleteById(room.getId());
+		connectManager.broadcastRoomList();
+		connectManager.broadcastAllRoomUsers();
 		if (result > 0) {
 			logPublisher.publish("room", null, removedName,
 				"删除房间 [" + (removedName != null ? removedName : "#" + room.getId()) + "]");
@@ -55,6 +58,7 @@ public class RoomController {
 		if (result == 1){
 			room.setUserNum(connectManager.findRoomById(room.getId()).getUserNum());
 			connectManager.addRoom(room);
+			connectManager.broadcastRoomList();
 			logPublisher.publish("room", null, room.getName(),
 				"更新房间 [" + room.getName() + "]");
 		}

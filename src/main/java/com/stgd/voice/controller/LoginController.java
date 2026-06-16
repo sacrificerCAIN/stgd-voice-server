@@ -51,7 +51,10 @@ public class LoginController {
 			session.setMaxInactiveInterval(259200);
 			response.put("isAuthenticated", true);
 			response.put("id", session.getAttribute("id"));
-			response.put("username", session.getAttribute("username"));
+			String username = (String) session.getAttribute("username");
+			response.put("username", username);
+			// 只有 super 用户拥有房间增删改权限
+			response.put("isAdmin", "super".equals(username));
 		} else {
 			response.put("isAuthenticated", false);
 		}

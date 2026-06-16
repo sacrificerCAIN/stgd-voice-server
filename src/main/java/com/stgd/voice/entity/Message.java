@@ -43,6 +43,10 @@ public class Message {
 	 */
 	private Integer targetRoomId;
 	/**
+	 * 房间名称（用于通过WebSocket添加/更新房间时传递名称）
+	 */
+	private String roomName;
+	/**
 	 * 消息载荷
 	 */
 	private String payload;

@@ -16,11 +16,11 @@ import org.springframework.stereotype.Component;
 
 import javax.websocket.Session;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
  * @author Hzzz
@@ -98,27 +98,56 @@ public class ConnectManager {
 	}
 
 	public void addRoom(Room room){
+		if (room == null) return;
+		if (room.getUserNum() == null) room.setUserNum(0);
 		roomMap.put(room.getId(), room);
+		broadcastRoomList();
 	}
 
 	public void removeRoom(Integer id){
 		Room room = roomMap.get(id);
-		Set<ChannelId> channelIdSet = getChannelIdSetByChannelIdStringSet(room.getUserChannelIdSet());
-		publishSet(channelIdSet, "管理员解散了[" + room.getName() +"]\n");
+		if (room == null) return;
+		Set<String> userIds = room.getUserChannelIdSet();
+		if (userIds != null) {
+			for (String idStr : userIds) {
+				ChannelId channelId = channelWithStringIdMap.get(idStr);
+				if (channelId != null) {
+					Channel ch = channelGroup.find(channelId);
+					if (ch != null && ch.isActive()) {
+						ch.writeAndFlush("[系统]: 管理员解散了[" + room.getName() + "]\n");
+						continue;
+					}
+				}
+				Session session = wsSessionMap.get(idStr);
+				if (session != null && session.isOpen()) {
+					try {
+						JSONObject msg = new JSONObject();
+						msg.put("type", "system");
+						msg.put("payload", "管理员解散了[" + room.getName() + "]");
+						session.getBasicRemote().sendText(msg.toJSONString());
+					} catch (IOException ignored) {}
+				}
+			}
+		}
+		if (userIds != null) {
+			for (String idStr : userIds) {
+				Integer rId = wsRoomMap.get(idStr);
+				if (rId != null && rId.equals(id)) {
+					wsRoomMap.remove(idStr);
+				}
+			}
+		}
 		roomMap.remove(id);
+		broadcastRoomList();
+		broadcastAllRoomUsers();
 	}
 
 	public Room findRoomById(Integer id){
-		Room room = roomMap.get(id);
-		if (room != null) {
-			return room;
-		} else {
-			return null;
-		}
+        return roomMap.get(id);
 	}
 
 	public List<Room> getAllRoom(){
-		return roomMap.values().stream().collect(Collectors.toList());
+		return new ArrayList<>(roomMap.values());
 	}
 
 	public void publishOne(ChannelHandlerContext ctx, String s){
@@ -232,12 +261,14 @@ public class ConnectManager {
 		return roomMap.get(targetRoomId);
 	}
 
-	/** WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见） */
-	public Room joinWsRoom(String sessionId, Integer targetRoomId) {
-		if (sessionId == null || targetRoomId == null) return null;
-		if (!wsUserMap.containsKey(sessionId)) return null;
+	/**
+	 * WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见）
+	 */
+	public void joinWsRoom(String sessionId, Integer targetRoomId) {
+		if (sessionId == null || targetRoomId == null) return;
+		if (!wsUserMap.containsKey(sessionId)) return;
 		Room targetRoom = roomMap.get(targetRoomId);
-		if (targetRoom == null) return null;
+		if (targetRoom == null) return;
 
 		// 如果当前已在某个房间，先离开
 		Integer oldRoomId = wsRoomMap.get(sessionId);
@@ -266,7 +297,6 @@ public class ConnectManager {
 			broadcastUserJoined(targetRoomId, sessionId, userName);
 		}
 		broadcastAllRoomUsers();
-		return targetRoom;
 	}
 
 	/** WebSocket 客户端离开房间（例如手动切换） */
@@ -489,5 +519,39 @@ public class ConnectManager {
 
 		// 对方不存在，告知发送方
 		sendWsOne(sourceSessionId, "{\"type\":\"system\",\"payload\":\"对方已下线\"}");
+	}
+
+	/**
+	 * 向所有 WebSocket 客户端广播房间列表（房间增删改时调用）。
+	 * 结构：
+	 *   {
+	 *     type: 'roomList',
+	 *     rooms: [
+	 *       { id, name, password, userNum },
+	 *       ...
+	 *     ]
+	 *   }
+	 */
+	public void broadcastRoomList() {
+		if (wsSessionMap.isEmpty()) return;
+		JSONObject root = new JSONObject();
+		root.put("type", "roomList");
+		List<JSONObject> roomArr = new java.util.ArrayList<>();
+		for (Room room : roomMap.values()) {
+			if (room == null) continue;
+			JSONObject rj = new JSONObject();
+			rj.put("id", room.getId());
+			rj.put("name", room.getName());
+			rj.put("password", room.getPassword());
+			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
+			roomArr.add(rj);
+		}
+		root.put("rooms", roomArr);
+		String text = root.toJSONString();
+		for (Session s : wsSessionMap.values()) {
+			if (s != null && s.isOpen()) {
+				try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
+			}
+		}
 	}
 }
