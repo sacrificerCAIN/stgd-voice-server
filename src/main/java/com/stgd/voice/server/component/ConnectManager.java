@@ -22,6 +22,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author Hzzz
@@ -29,6 +33,24 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 public class ConnectManager {
+
+	/**
+	 * 专用线程池：负责所有房间消息/广播的异步推送。
+	 * 不阻塞业务线程，避免一条消息推送给 N 个用户时整个系统卡住。
+	 */
+	public static final int BROADCAST_THREAD_POOL_SIZE = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+	public static final ExecutorService BROADCAST_EXECUTOR = Executors.newFixedThreadPool(
+		BROADCAST_THREAD_POOL_SIZE,
+		new ThreadFactory() {
+			private final AtomicInteger counter = new AtomicInteger(0);
+			@Override
+			public Thread newThread(Runnable r) {
+				Thread t = new Thread(r, "broadcast-" + counter.incrementAndGet());
+				t.setDaemon(true);
+				return t;
+			}
+		}
+	);
 
 	// ============ Netty TCP 客户端 ============
 	private static final ChannelGroup channelGroup = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
@@ -112,6 +134,7 @@ public class ConnectManager {
 		if (room == null) return;
 		Set<String> userIds = room.getUserChannelIdSet();
 		if (userIds != null) {
+			// Netty 推送（本身是异步的）
 			for (String idStr : userIds) {
 				ChannelId channelId = channelWithStringIdMap.get(idStr);
 				if (channelId != null) {
@@ -121,16 +144,21 @@ public class ConnectManager {
 						continue;
 					}
 				}
-				Session session = wsSessionMap.get(idStr);
-				if (session != null && session.isOpen()) {
-					try {
-						JSONObject msg = new JSONObject();
-						msg.put("type", "system");
-						msg.put("payload", "管理员解散了[" + room.getName() + "]");
-						session.getBasicRemote().sendText(msg.toJSONString());
-					} catch (IOException ignored) {}
-				}
 			}
+			// WebSocket 推送：异步 + 线程池
+			final String roomName = room.getName();
+			BROADCAST_EXECUTOR.submit(() -> {
+				JSONObject msg = new JSONObject();
+				msg.put("type", "system");
+				msg.put("payload", "管理员解散了[" + roomName + "]");
+				String wsText = msg.toJSONString();
+				for (String idStr : userIds) {
+					Session session = wsSessionMap.get(idStr);
+					if (session != null && session.isOpen()) {
+						session.getAsyncRemote().sendText(wsText);
+					}
+				}
+			});
 		}
 		if (userIds != null) {
 			for (String idStr : userIds) {
@@ -588,11 +616,14 @@ public class ConnectManager {
 			roomArr.add(rj);
 		}
 		root.put("rooms", roomArr);
-		String text = root.toJSONString();
-		for (Session s : wsSessionMap.values()) {
-			if (s != null && s.isOpen()) {
-				try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
+		final String text = root.toJSONString();
+		// 提交到异步线程池，使用 getAsyncRemote() 非阻塞发送
+		BROADCAST_EXECUTOR.submit(() -> {
+			for (Session s : wsSessionMap.values()) {
+				if (s != null && s.isOpen()) {
+					s.getAsyncRemote().sendText(text);
+				}
 			}
-		}
+		});
 	}
 }

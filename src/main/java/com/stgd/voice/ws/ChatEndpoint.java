@@ -14,7 +14,6 @@ import org.springframework.stereotype.Component;
 import javax.servlet.http.HttpSession;
 import javax.websocket.*;
 import javax.websocket.server.ServerEndpoint;
-import java.io.IOException;
 
 @Component
 @ServerEndpoint(value = "/ws/chat", configurator = HttpSessionConfigurator.class)
@@ -233,12 +232,15 @@ public class ChatEndpoint {
         msg.put("userName", userName);
         msg.put("payload", payload);
         msg.put("timestamp", System.currentTimeMillis());
-        String text = msg.toJSONString();
-        for (Session s : session.getOpenSessions()) {
-            if (s.isOpen()) {
-                try { s.getBasicRemote().sendText(text); } catch (IOException ignored) {}
+        final String text = msg.toJSONString();
+        // 全局广播提交到异步线程池，不阻塞当前 WebSocket 线程
+        ConnectManager.BROADCAST_EXECUTOR.submit(() -> {
+            for (Session s : session.getOpenSessions()) {
+                if (s.isOpen()) {
+                    s.getAsyncRemote().sendText(text);
+                }
             }
-        }
+        });
     }
 
     private void handleLogout(Session session) {
@@ -409,19 +411,17 @@ public class ChatEndpoint {
 
     private void sendSystem(Session session, String text) {
         if (session == null || !session.isOpen()) return;
-        try {
-            JSONObject msg = new JSONObject();
-            msg.put("type", "system");
-            msg.put("payload", text);
-            session.getBasicRemote().sendText(msg.toJSONString());
-        } catch (IOException ignored) {}
+        JSONObject msg = new JSONObject();
+        msg.put("type", "system");
+        msg.put("payload", text);
+        // 单发消息直接异步发送，getAsyncRemote 本身就是非阻塞的
+        session.getAsyncRemote().sendText(msg.toJSONString());
     }
 
     private void sendJson(Session session, JSONObject json) {
         if (session == null || !session.isOpen() || json == null) return;
-        try {
-            session.getBasicRemote().sendText(json.toJSONString());
-        } catch (IOException ignored) {}
+        // 单发消息直接异步发送，getAsyncRemote 本身就是非阻塞的
+        session.getAsyncRemote().sendText(json.toJSONString());
     }
 
     private String getHttpSessionId(Session session) {
