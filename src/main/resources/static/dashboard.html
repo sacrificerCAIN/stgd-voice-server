@@ -566,12 +566,12 @@
             if (xhr.readyState === 4) {
                 if (xhr.status === 200) {
                     const result = JSON.parse(xhr.responseText);
-                    if (result > 0) {
+                    if (result.success) {
                         showMessage(`房间${method}成功`, true);
                         closeModal();
                         loadRooms();
                     } else {
-                        showMessage(`房间${method}失败`, false);
+                        showMessage(`房间${method}失败` + (result.message ? ': ' + result.message : ''), false);
                     }
                 } else {
                     showMessage(`房间${method}失败: ` + xhr.status, false);
@@ -592,11 +592,11 @@
             if (xhr.readyState === 4) {
                 if (xhr.status === 200) {
                     const result = JSON.parse(xhr.responseText);
-                    if (result > 0) {
+                    if (result.success) {
                         showMessage('房间删除成功', true);
                         loadRooms();
                     } else {
-                        showMessage('房间删除失败', false);
+                        showMessage('房间删除失败' + (result.message ? ': ' + result.message : ''), false);
                     }
                 } else {
                     showMessage('房间删除失败: ' + xhr.status, false);

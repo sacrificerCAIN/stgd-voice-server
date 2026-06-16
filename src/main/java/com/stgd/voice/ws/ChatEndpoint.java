@@ -103,6 +103,7 @@ public class ChatEndpoint {
             }
         } catch (Exception e) {
             sendSystem(session, "消息解析失败");
+            e.printStackTrace();
         }
     }
 
@@ -393,9 +394,9 @@ public class ChatEndpoint {
         } else {
             updateRoom.setPassword(existRoom.getPassword());
         }
-        updateRoom.setUserNum(existRoom.getUserNum());
         // 更新数据库
         int dbResult = roomMapper.updateById(updateRoom);
+        updateRoom.setUserNum(existRoom.getUserNum());
         // 更新内存
         connectManager.addRoom(updateRoom);
         if (dbResult > 0) {

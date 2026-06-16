@@ -20,6 +20,7 @@ public class Room {
 
 	private String password;
 
+	@TableField(exist = false)
 	private Integer userNum;
 
 	@TableField(exist = false)
