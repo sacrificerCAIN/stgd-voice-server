@@ -1,6 +1,7 @@
 package com.stgd.voice.server.component;
 
 import com.alibaba.fastjson.JSONObject;
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.entity.User;
 import com.stgd.voice.mapper.RoomMapper;
@@ -444,7 +445,12 @@ public class ConnectManager {
 			JSONObject rj = new JSONObject();
 			rj.put("id", room.getId());
 			rj.put("name", room.getName());
-			rj.put("password", room.getPassword());
+			if (StringUtils.isNotBlank(room.getPassword())){
+				rj.put("hasPassword", "1");
+			}else{
+				rj.put("hasPassword", "0");
+			}
+
 			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
 			List<JSONObject> userArr = new java.util.ArrayList<>();
 			Set<String> ids = room.getUserChannelIdSet();
@@ -573,7 +579,11 @@ public class ConnectManager {
 			JSONObject rj = new JSONObject();
 			rj.put("id", room.getId());
 			rj.put("name", room.getName());
-			rj.put("password", room.getPassword());
+			if (StringUtils.isNotBlank(room.getPassword())){
+				rj.put("hasPassword", "1");
+			}else{
+				rj.put("hasPassword", "0");
+			}
 			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
 			roomArr.add(rj);
 		}

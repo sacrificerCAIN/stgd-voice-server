@@ -219,7 +219,7 @@
       font-style: italic;
     }
     .room-user-item {
-      padding: 4px 16px;
+      padding: 4px 50px;
       font-size: 16px;
     }
     .room-user-item.self {
@@ -265,7 +265,7 @@
     .message.self { align-items: flex-end; }
     .message.self .content { background: #4CAF50; color: #fff; }
     .message.other { align-items: flex-start; }
-    .message.other .content { background: #fff; border: 1px solid #eee; color: #333; }
+    .message.other .content { background: #dcdcdc; border: 1px solid #eee; color: #333; }
     .message.private .meta { color: #9b59b6; }
     .message.private .content { background: #9b59b6; color: #fff; }
     .input-area {
@@ -301,6 +301,11 @@
     }
     .input-area button.broadcast { background: #e67e22; }
     .input-area button:disabled { background: #ccc; cursor: not-allowed; }
+    .lock-icon, .lock-placeholder {
+      display: inline-block;
+      width: 1.2em; /* 和锁emoji宽度一致 */
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -545,9 +550,11 @@
       header.innerHTML =
               '<span class="room-title">' +
               '<span class="room-name">' +
-                (room.password && room.password.length > 0 ? ' 🔒' : '')+
-                (room.name || '房间' + room.id) +
-              '</span>' +
+              (room.hasPassword === '1'
+                      ? '<span class="lock-icon">🔒</span>'
+                      : '<span class="lock-placeholder"></span>') +
+              (room.name || '房间' + room.id) +
+              '</span>'
               '</span>' +
               '<span class="room-count">' + (room.userNum || 0) + '人</span>';
       li.appendChild(header);
@@ -650,7 +657,9 @@
 
   // 弹出框:确认删除房间
   function confirmWsRemoveRoom(room) {
-    if (!confirm('确定要删除房间 [" + (room.name || "房间" + room.id) + "] 吗？')) return;
+    if (!confirm("确定要删除房间 [" + room.name + "] 吗？")){
+      return;
+    }
     wsRemoveRoom(room.id);
   }
 
@@ -676,7 +685,7 @@
       next[r.id] = {
         id: r.id,
         name: r.name,
-        password: r.password || "",
+        hasPassword: r.hasPassword || "",
         userNum: r.userNum,
         users: Array.isArray(r.users) ? r.users : []
       };
@@ -710,7 +719,7 @@
 
   function renderRoomUsers() {
     const ul = document.getElementById('roomList');
-    // 先清空所有独立用户行（红字条目）
+    // 先清空所有独立用户行
     ul.querySelectorAll('.room-user-item').forEach(el => el.remove());
 
     const lis = ul.querySelectorAll('li[data-room-id]');
@@ -729,7 +738,7 @@
       const tree = li.querySelector('.user-tree');
       if(tree) tree.innerHTML = '';
 
-      // 在当前房间li的【后面】插入独立的用户行（红字，脱离绿色块）
+      // 在当前房间li的【后面】插入独立的用户行
       if (!info || info.users.length === 0) return;
       info.users.forEach(u => {
         const userDiv = document.createElement('div');
@@ -822,7 +831,8 @@
     const roomInfo = Object.values(roomUserMap).find(r => r.id === roomId);
     let pwd = '';
     // 判断房间是否有密码
-    if (roomInfo && roomInfo.password && roomInfo.password.trim() !== '') {
+    console.log('roomInfo', roomInfo)
+    if (roomInfo && roomInfo.hasPassword === '1') {
       pwd = prompt('请输入房间密码：');
       // 用户点取消 / 输入空
       if (pwd === null) {

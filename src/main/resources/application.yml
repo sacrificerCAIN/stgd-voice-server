@@ -8,8 +8,6 @@ server:
       cookie:
         http-only: true
 
-
-
 logging:
   level:
     root: OFF

@@ -296,7 +296,6 @@ public class ChatEndpoint {
         if (pwd != null && !pwd.trim().isEmpty()) {
             room.setPassword(pwd.trim());
         }
-        room.setUserNum(0);
         // 保存到数据库
         int dbResult = roomMapper.insert(room);
         // 添加到内存
