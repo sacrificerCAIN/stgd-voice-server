@@ -7,7 +7,6 @@ import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.server.component.ConnectManager;
-import com.stgd.voice.ws.SystemLogPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -41,6 +40,27 @@ public class ChatEndpoint {
     @OnOpen
     public void onOpen(Session session) {
         connectManager.addWsSession(session);
+        // 从 URL query 中解析登录用户名（前端 connectChat 时通过 ?loginUser=xxx 传递）
+        // 这是权限校验的核心依据，不依赖用户自定义昵称
+        java.net.URI uri = session.getRequestURI();
+        if (uri != null) {
+            String query = uri.getQuery();
+            if (query != null) {
+                for (String param : query.split("&")) {
+                    String[] pair = param.split("=", 2);
+                    if (pair.length == 2 && "loginUser".equals(pair[0])) {
+                        try {
+                            String loginUser = java.net.URLDecoder.decode(pair[1], "UTF-8");
+                            if (loginUser != null && !loginUser.trim().isEmpty()) {
+                                connectManager.setWsLoginUser(session.getId(), loginUser.trim());
+                            }
+                        } catch (Exception ignored) {
+                        }
+                        break;
+                    }
+                }
+            }
+        }
         // 新连接建立时，立即推送一次房间列表
         connectManager.broadcastRoomList();
     }
@@ -95,6 +115,8 @@ public class ChatEndpoint {
             sendSystem(session, "用户名不能为空");
             return;
         }
+        // 用 userName（用户自定义的昵称）注册到 wsUserMap
+        // 登录的真实用户名已在 onOpen 时通过 URL query 保存到 wsLoginUserMap（用于权限校验）
         String actualName = connectManager.registerWsUser(session.getId(), userName);
         JSONObject resp = new JSONObject();
         resp.put("type", "login");
@@ -245,14 +267,19 @@ public class ChatEndpoint {
      * 消息体：{ type: 10, name: "房间名", password: "可选密码(sha256加密后)" }
      */
     private void handleInsertRoom(Session session, Message message) {
+        // 用 HTTP Session 登录用户名做权限校验，避免通过伪造昵称绕过
+        String loginUserName = connectManager.getWsLoginUser(session.getId());
+        if (loginUserName == null) {
+            sendSystem(session, "登录信息丢失，请刷新页面");
+            return;
+        }
+        if (!"super".equals(loginUserName)) {
+            sendSystem(session, "没有权限添加房间");
+            return;
+        }
         String userName = connectManager.getWsUserName(session.getId());
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
-            return;
-        }
-        // 权限校验：只有 super 用户可以添加房间
-        if (!"super".equals(userName)) {
-            sendSystem(session, "没有权限添加房间");
             return;
         }
         String roomName = message.getRoomName();
@@ -285,14 +312,19 @@ public class ChatEndpoint {
      * 消息体：{ type: 11, id: 房间ID }
      */
     private void handleRemoveRoom(Session session, Message message) {
+        // 用 HTTP Session 登录用户名做权限校验
+        String loginUserName = connectManager.getWsLoginUser(session.getId());
+        if (loginUserName == null) {
+            sendSystem(session, "登录信息丢失，请刷新页面");
+            return;
+        }
+        if (!"super".equals(loginUserName)) {
+            sendSystem(session, "没有权限删除房间");
+            return;
+        }
         String userName = connectManager.getWsUserName(session.getId());
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
-            return;
-        }
-        // 权限校验：只有 super 用户可以删除房间
-        if (!"super".equals(userName)) {
-            sendSystem(session, "没有权限删除房间");
             return;
         }
         Integer roomId = message.getRoomId();
@@ -320,14 +352,19 @@ public class ChatEndpoint {
      * 消息体：{ type: 12, id: 房间ID, name: "新名称", password: "新密码(sha256加密后)" }
      */
     private void handleUpdateRoom(Session session, Message message) {
+        // 用 HTTP Session 登录用户名做权限校验
+        String loginUserName = connectManager.getWsLoginUser(session.getId());
+        if (loginUserName == null) {
+            sendSystem(session, "登录信息丢失，请刷新页面");
+            return;
+        }
+        if (!"super".equals(loginUserName)) {
+            sendSystem(session, "没有权限更新房间");
+            return;
+        }
         String userName = connectManager.getWsUserName(session.getId());
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
-            return;
-        }
-        // 权限校验：只有 super 用户可以更新房间
-        if (!"super".equals(userName)) {
-            sendSystem(session, "没有权限更新房间");
             return;
         }
         Integer roomId = message.getRoomId();

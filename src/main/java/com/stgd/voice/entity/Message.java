@@ -47,6 +47,10 @@ public class Message {
 	 */
 	private String roomName;
 	/**
+	 * HTTP Session 登录的真实用户名（用于权限校验，而非用户设置的昵称）
+	 */
+	private String loginUserName;
+	/**
 	 * 消息载荷
 	 */
 	private String payload;

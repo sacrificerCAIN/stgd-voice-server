@@ -39,8 +39,10 @@ public class ConnectManager {
 	// ============ WebSocket 浏览器客户端 ============
 	// sessionId -> javax.websocket.Session
 	private static final ConcurrentHashMap<String, Session> wsSessionMap = new ConcurrentHashMap<>();
-	// sessionId -> 用户名
+	// sessionId -> 昵称（用户在前端自定义设置）
 	private static final ConcurrentHashMap<String, String> wsUserMap = new ConcurrentHashMap<>();
+	// sessionId -> HTTP Session 登录的真实用户名（用于权限校验，不可伪造）
+	private static final ConcurrentHashMap<String, String> wsLoginUserMap = new ConcurrentHashMap<>();
 	// sessionId -> 当前房间ID（用于离开时清理）
 	private static final ConcurrentHashMap<String, Integer> wsRoomMap = new ConcurrentHashMap<>();
 
@@ -213,6 +215,7 @@ public class ConnectManager {
 		if (sessionId == null) return;
 		wsSessionMap.remove(sessionId);
 		String userName = wsUserMap.remove(sessionId);
+		wsLoginUserMap.remove(sessionId);
 		Integer roomId = wsRoomMap.remove(sessionId);
 		if (roomId != null) {
 			Room room = roomMap.get(roomId);
@@ -254,6 +257,18 @@ public class ConnectManager {
 	/** 获取 WebSocket 客户端的昵称 */
 	public String getWsUserName(String sessionId) {
 		return sessionId == null ? null : wsUserMap.get(sessionId);
+	}
+
+	/** 设置 WebSocket 客户端对应的 HTTP Session 登录用户名（连接建立时调用） */
+	public void setWsLoginUser(String sessionId, String loginUserName) {
+		if (sessionId == null) return;
+		if (loginUserName == null || loginUserName.trim().isEmpty()) return;
+		wsLoginUserMap.put(sessionId, loginUserName.trim());
+	}
+
+	/** 获取 WebSocket 客户端对应的 HTTP Session 登录用户名（用于权限校验） */
+	public String getWsLoginUser(String sessionId) {
+		return sessionId == null ? null : wsLoginUserMap.get(sessionId);
 	}
 
 	/** WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见） */
