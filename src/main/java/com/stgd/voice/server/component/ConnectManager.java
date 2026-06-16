@@ -2,6 +2,7 @@ package com.stgd.voice.server.component;
 
 import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.stgd.voice.Util.SessionUtil;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.entity.User;
 import com.stgd.voice.mapper.RoomMapper;
@@ -243,7 +244,7 @@ public class ConnectManager {
 	/** 注册一个 WebSocket 会话（连接建立时调用） */
 	public void addWsSession(Session session) {
 		if (session == null) return;
-		wsSessionMap.put(session.getId(), session);
+		wsSessionMap.put(SessionUtil.getHttpSessionId(session), session);
 	}
 
 	/** 移除一个 WebSocket 会话（连接关闭时调用，自动退出所在房间、清除用户信息） */
@@ -258,7 +259,7 @@ public class ConnectManager {
 			if (room != null) {
 				room.removeUser(sessionId);
 				if (userName != null) {
-					publishRoomSystem(roomId, userName + " 离开了房间");
+					publishRoomSystemWs(roomId, userName + " 离开了房间", sessionId);
 					if (logPublisher != null) {
 						logPublisher.publish("leave", userName, room.getName(),
 							userName + " 离开房间 [" + room.getName() + "]");
@@ -291,7 +292,7 @@ public class ConnectManager {
 		if (session == null || text == null) return;
 		if (!session.isOpen()) return;
 
-		String sessionId = session.getId();
+		String sessionId = SessionUtil.getHttpSessionId(session);
 
 		// 1. 获取/创建该 Session 的消息队列
 		LinkedBlockingQueue<String> queue = wsMessageQueues.computeIfAbsent(
@@ -405,7 +406,7 @@ public class ConnectManager {
 				oldRoom.removeUser(sessionId);
 				String userName = wsUserMap.get(sessionId);
 				if (userName != null) {
-					publishRoomSystem(oldRoomId, userName + " 离开了房间");
+					publishRoomSystemWs(oldRoomId, userName + " 离开了房间", sessionId);
 				}
 			}
 		}
@@ -415,7 +416,7 @@ public class ConnectManager {
 		wsRoomMap.put(sessionId, targetRoomId);
 		String userName = wsUserMap.get(sessionId);
 		if (userName != null) {
-			publishRoomSystem(targetRoomId, userName + " 加入了房间");
+			publishRoomSystemWs(targetRoomId, userName + " 加入了房间", sessionId);
 			// 系统日志：加入房间（dashboard 会显示）
 			if (logPublisher != null) {
 				logPublisher.publish("join", userName, targetRoom.getName(),
@@ -436,7 +437,7 @@ public class ConnectManager {
 				room.removeUser(sessionId);
 				String userName = wsUserMap.get(sessionId);
 				if (userName != null) {
-					publishRoomSystem(roomId, userName + " 离开了房间");
+					publishRoomSystemWs(roomId, userName + " 离开了房间", sessionId);
 					broadcastUserLeft(roomId, sessionId, userName);
 				}
 			}
@@ -493,14 +494,11 @@ public class ConnectManager {
 		}
 	}
 
-
-	/** 向房间内所有成员发送一条系统提示（xxx 加入了房间 / xxx 离开了房间） */
-	public void publishRoomSystem(Integer roomId, String text) {
+	public void publishRoomSystemWs(Integer roomId, String text, String sessionId) {
 		if (roomId == null || text == null) return;
 		Room room = roomMap.get(roomId);
 		if (room == null) return;
 
-		String nettyText = "[系统]: " + text + "\n";
 		JSONObject wsJson = new JSONObject();
 		wsJson.put("type", "system");
 		wsJson.put("payload", text);
@@ -508,18 +506,9 @@ public class ConnectManager {
 		String wsText = wsJson.toJSONString();
 
 		for (String idStr : room.getUserChannelIdSet()) {
-			// Netty：writeAndFlush 本身是异步的，由 Netty 内部管理，无需修改
-			ChannelId channelId = channelWithStringIdMap.get(idStr);
-			if (channelId != null) {
-				Channel ch = channelGroup.find(channelId);
-				if (ch != null && ch.isActive()) {
-					ch.writeAndFlush(nettyText);
-					continue;
-				}
-			}
-			// WebSocket：通过统一的 sendToWs() 入口，保证每个 Session 串行发送
 			Session session = wsSessionMap.get(idStr);
 			if (session != null) {
+				if (StringUtils.equals(sessionId, SessionUtil.getHttpSessionId(session))) continue;
 				sendToWs(session, wsText);
 			}
 		}

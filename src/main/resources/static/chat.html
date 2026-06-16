@@ -421,19 +421,8 @@
       if (savedNick && savedNick.trim() !== "") {
         // 把cookie里的昵称填入输入框
         document.getElementById("nickname").value = savedNick;
-        // 等待websocket连接成功后自动执行设置昵称
-        function autoSetNickWhenConnected() {
-          if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-            setNickname();
-          } else {
-            // 未连接，延迟100ms重试
-            setTimeout(autoSetNickWhenConnected, 100);
-          }
-        }
         // 连接ws
         connectChat();
-        // 启动自动设置轮询
-        autoSetNickWhenConnected();
       } else {
         // 没有保存的昵称，正常连接ws
         connectChat();
@@ -464,7 +453,6 @@
     try {
       setWsStatus('connecting', '连接中...');
       chatSocket = new WebSocket(url);
-      setNickname();
     } catch (e) {
       setWsStatus('disconnected', '连接失败');
       return;
@@ -472,9 +460,19 @@
     chatSocket.onopen = function() {
       setWsStatus('connected', '已连接');
       addSystemMessage('聊天室已连接');
-      // 重新建立连接后，若已设置昵称则立即刷新一次房间-用户列表
+
+      // 连接成功后自动设置本地保存的昵称
+      const savedNick = getCookie("chatNickname");
+      if (savedNick && savedNick.trim()) {
+        document.getElementById("nickname").value = savedNick;
+        setNickname();
+      }
+
+      // 刷新房间用户列表
       if (currentUserName && chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-        try { chatSocket.send(JSON.stringify({ type: 8 })); } catch(e) {}
+        try {
+          chatSocket.send(JSON.stringify({ type: 8 }));
+        } catch(e) {}
       }
     };
     chatSocket.onmessage = function(event) {
@@ -799,8 +797,6 @@
     if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
       currentUserName = nickname;
       chatSocket.send(JSON.stringify({ type: 1, userName: nickname }));
-    } else {
-      alert('WebSocket 未连接');
     }
   }
 
@@ -864,19 +860,6 @@
     if (!currentRoomId) { alert('请先选择房间'); return; }
     if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
       chatSocket.send(JSON.stringify({ type: 3, roomId: currentRoomId, payload: text }));
-      input.value = '';
-    } else {
-      alert('WebSocket 未连接');
-    }
-  }
-
-  function sendBroadcast() {
-    const input = document.getElementById('messageInput');
-    const text = input.value.trim();
-    if (!text) return;
-    if (!currentUserName) { alert('请先设置昵称'); return; }
-    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-      chatSocket.send(JSON.stringify({ type: 5, payload: text }));
       input.value = '';
     } else {
       alert('WebSocket 未连接');

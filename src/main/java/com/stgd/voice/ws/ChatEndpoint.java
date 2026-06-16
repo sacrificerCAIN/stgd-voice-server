@@ -3,6 +3,7 @@ package com.stgd.voice.ws;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.stgd.voice.Util.SessionUtil;
 import com.stgd.voice.config.HttpSessionConfigurator;
 import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.Room;
@@ -11,7 +12,6 @@ import com.stgd.voice.server.component.ConnectManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import javax.servlet.http.HttpSession;
 import javax.websocket.*;
 import javax.websocket.server.ServerEndpoint;
 
@@ -53,7 +53,7 @@ public class ChatEndpoint {
                         try {
                             String loginUser = java.net.URLDecoder.decode(pair[1], "UTF-8");
                             if (loginUser != null && !loginUser.trim().isEmpty()) {
-                                connectManager.setWsLoginUser(session.getId(), loginUser.trim());
+                                connectManager.setWsLoginUser(SessionUtil.getHttpSessionId(session), loginUser.trim());
                             }
                         } catch (Exception ignored) {
                         }
@@ -68,13 +68,13 @@ public class ChatEndpoint {
 
     @OnClose
     public void onClose(Session session) {
-        connectManager.removeWsSession(session.getId());
+        connectManager.removeWsSession(SessionUtil.getHttpSessionId(session));
         connectManager.broadcastAllRoomUsers();
     }
 
     @OnError
     public void onError(Session session, Throwable throwable) {
-        connectManager.removeWsSession(session.getId());
+        connectManager.removeWsSession(SessionUtil.getHttpSessionId(session));
     }
 
     @OnMessage
@@ -118,10 +118,10 @@ public class ChatEndpoint {
         }
         // 用 userName（用户自定义的昵称）注册到 wsUserMap
         // 登录的真实用户名已在 onOpen 时通过 URL query 保存到 wsLoginUserMap（用于权限校验）
-        String actualName = connectManager.registerWsUser(session.getId(), userName);
+        String actualName = connectManager.registerWsUser(SessionUtil.getHttpSessionId(session), userName);
         JSONObject resp = new JSONObject();
         resp.put("type", "login");
-        resp.put("userId", session.getId());
+        resp.put("userId", SessionUtil.getHttpSessionId(session));
         resp.put("userName", actualName);
         sendJson(session, resp);
     }
@@ -138,7 +138,7 @@ public class ChatEndpoint {
             sendSystem(session, "系统未就绪");
             return;
         }
-        String userName = connectManager.getWsUserName(session.getId());
+        String userName = connectManager.getWsUserName(SessionUtil.getHttpSessionId(session));
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
             return;
@@ -164,7 +164,7 @@ public class ChatEndpoint {
                 return;
             }
         }
-        connectManager.joinWsRoom(session.getId(), targetRoomId);
+        connectManager.joinWsRoom(SessionUtil.getHttpSessionId(session), targetRoomId);
         JSONObject resp = new JSONObject();
         resp.put("type", "join");
         resp.put("roomId", targetRoomId);
@@ -179,13 +179,13 @@ public class ChatEndpoint {
             sendSystem(session, "系统未就绪");
             return;
         }
-        String userName = connectManager.getWsUserName(session.getId());
-        Integer roomId = connectManager.getWsRoomId(session.getId());
+        String userName = connectManager.getWsUserName(SessionUtil.getHttpSessionId(session));
+        Integer roomId = connectManager.getWsRoomId(SessionUtil.getHttpSessionId(session));
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
             return;
         }
-        String httpSessionId = getHttpSessionId(session);
+        String httpSessionId = SessionUtil.getHttpSessionId(session);
         if (roomId == null) {
             sendSystem(session, "请先加入房间");
             return;
@@ -200,7 +200,7 @@ public class ChatEndpoint {
             sendSystem(session, "系统未就绪");
             return;
         }
-        String userName = connectManager.getWsUserName(session.getId());
+        String userName = connectManager.getWsUserName(SessionUtil.getHttpSessionId(session));
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
             return;
@@ -212,7 +212,7 @@ public class ChatEndpoint {
         }
         String payload = message.getPayload();
         if (payload == null) payload = "";
-        connectManager.sendWsPrivate(session.getId(), targetUserId, payload);
+        connectManager.sendWsPrivate(SessionUtil.getHttpSessionId(session), targetUserId, payload);
     }
 
     private void handleBroadcast(Session session, Message message) {
@@ -220,7 +220,7 @@ public class ChatEndpoint {
             sendSystem(session, "系统未就绪");
             return;
         }
-        String userName = connectManager.getWsUserName(session.getId());
+        String userName = connectManager.getWsUserName(SessionUtil.getHttpSessionId(session));
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
             return;
@@ -242,7 +242,7 @@ public class ChatEndpoint {
     }
 
     private void handleLogout(Session session) {
-        connectManager.removeWsSession(session.getId());
+        connectManager.removeWsSession(SessionUtil.getHttpSessionId(session));
         connectManager.broadcastAllRoomUsers();
     }
 
@@ -271,7 +271,7 @@ public class ChatEndpoint {
      */
     private void handleInsertRoom(Session session, Message message) {
         // 用 HTTP Session 登录用户名做权限校验，避免通过伪造昵称绕过
-        String loginUserName = connectManager.getWsLoginUser(session.getId());
+        String loginUserName = connectManager.getWsLoginUser(SessionUtil.getHttpSessionId(session));
         if (loginUserName == null) {
             sendSystem(session, "登录信息丢失，请刷新页面");
             return;
@@ -280,7 +280,7 @@ public class ChatEndpoint {
             sendSystem(session, "没有权限添加房间");
             return;
         }
-        String userName = connectManager.getWsUserName(session.getId());
+        String userName = connectManager.getWsUserName(SessionUtil.getHttpSessionId(session));
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
             return;
@@ -315,7 +315,7 @@ public class ChatEndpoint {
      */
     private void handleRemoveRoom(Session session, Message message) {
         // 用 HTTP Session 登录用户名做权限校验
-        String loginUserName = connectManager.getWsLoginUser(session.getId());
+        String loginUserName = connectManager.getWsLoginUser(SessionUtil.getHttpSessionId(session));
         if (loginUserName == null) {
             sendSystem(session, "登录信息丢失，请刷新页面");
             return;
@@ -324,7 +324,7 @@ public class ChatEndpoint {
             sendSystem(session, "没有权限删除房间");
             return;
         }
-        String userName = connectManager.getWsUserName(session.getId());
+        String userName = connectManager.getWsUserName(SessionUtil.getHttpSessionId(session));
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
             return;
@@ -355,7 +355,7 @@ public class ChatEndpoint {
      */
     private void handleUpdateRoom(Session session, Message message) {
         // 用 HTTP Session 登录用户名做权限校验
-        String loginUserName = connectManager.getWsLoginUser(session.getId());
+        String loginUserName = connectManager.getWsLoginUser(SessionUtil.getHttpSessionId(session));
         if (loginUserName == null) {
             sendSystem(session, "登录信息丢失，请刷新页面");
             return;
@@ -364,7 +364,7 @@ public class ChatEndpoint {
             sendSystem(session, "没有权限更新房间");
             return;
         }
-        String userName = connectManager.getWsUserName(session.getId());
+        String userName = connectManager.getWsUserName(SessionUtil.getHttpSessionId(session));
         if (userName == null) {
             sendSystem(session, "请先设置昵称");
             return;
@@ -420,14 +420,5 @@ public class ChatEndpoint {
         if (session == null || json == null) return;
         // 通过 ConnectManager 的统一入口发送，保证每个 Session 的消息永远串行发送
         ConnectManager.sendToWs(session, json.toJSONString());
-    }
-
-    private String getHttpSessionId(Session session) {
-        HttpSession httpSession = (HttpSession) session.getUserProperties().get(HttpSession.class.getName());
-        String httpSessionId = null;
-        if (httpSession != null) {
-            httpSessionId = httpSession.getId();
-        }
-        return httpSessionId;
     }
 }

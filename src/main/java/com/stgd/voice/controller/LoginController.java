@@ -1,5 +1,6 @@
 package com.stgd.voice.controller;
 
+import com.stgd.voice.Util.SessionUtil;
 import com.stgd.voice.entity.AdminUser;
 import com.stgd.voice.mapper.AdminUserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,16 +45,16 @@ public class LoginController {
 	@GetMapping("checkSession")
 	public Map<String, Object> checkSession(HttpServletRequest request) {
 		Map<String, Object> response = new HashMap<>();
-		HttpSession session = request.getSession(false);
+		HttpSession httpSession = request.getSession(false);
 
-		if (session != null) {
+		if (httpSession != null) {
 			// 每次检查会话时刷新过期时间
-			session.setMaxInactiveInterval(259200);
+			httpSession.setMaxInactiveInterval(259200);
 			response.put("isAuthenticated", true);
-			response.put("id", session.getAttribute("id"));
-			String username = (String) session.getAttribute("username");
+			response.put("id", httpSession.getAttribute("id"));
+			String username = (String) httpSession.getAttribute("username");
 			response.put("username", username);
-			response.put("sessionId", session.getId());
+			response.put("sessionId", httpSession.getId());
 			// 只有 super 用户拥有房间增删改权限
 			response.put("isAdmin", "super".equals(username));
 		} else {
