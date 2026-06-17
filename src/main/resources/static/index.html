@@ -103,7 +103,7 @@
         try {
             const hashedPassword = await sha256(password);
 
-            const response = await fetch('http://localhost:8080/login/login', {
+            const response = fetch('/login/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -135,7 +135,7 @@
     // 检查会话状态
     async function checkSession() {
         try {
-            const response = await fetch('http://localhost:8080/login/checkSession', {
+            const response = await fetch('/login/checkSession', {
                 method: 'GET',
                 credentials: 'include' // 包含cookie
             });

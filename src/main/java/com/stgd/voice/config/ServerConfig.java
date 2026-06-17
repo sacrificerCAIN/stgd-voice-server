@@ -11,6 +11,8 @@ public class ServerConfig {
 
 	private Integer port;
 
+	private String host;
+
 	private Integer tcpPort;
 
 	private Integer udpPort;

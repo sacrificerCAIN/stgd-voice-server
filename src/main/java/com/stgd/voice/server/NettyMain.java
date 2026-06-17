@@ -96,8 +96,11 @@ public class NettyMain {
 
 				connectManager.init();
 				System.out.println("项目启动成功");
-				System.out.println("控制台 http://localhost:" + serverConfig.getPort());
-				System.out.println("聊天室 http://localhost:" + serverConfig.getPort() + "/chat.html");
+				String host = (serverConfig.getHost() != null && !serverConfig.getHost().trim().isEmpty())
+						? serverConfig.getHost().trim()
+						: "localhost";
+				System.out.println("控制台 http://" + host + ":" + serverConfig.getPort());
+				System.out.println("聊天室 http://" + host + ":" + serverConfig.getPort() + "/chat.html");
 
 				// 等待两个服务器关闭
 				tcpFuture.channel().closeFuture().sync();

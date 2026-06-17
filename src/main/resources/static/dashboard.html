@@ -389,7 +389,7 @@
     function logout() {
         // 这里可以添加登出逻辑，如清除session等
         // 然后跳转到index.html
-        fetch('http://localhost:8080/login/logout', {
+        fetch('/login/logout', {
             method: 'POST',
             credentials: 'include',
             headers: {
@@ -453,7 +453,7 @@
     // 加载所有房间
     function loadRooms() {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'http://localhost:8080/room/getAllRoom', true);
+        xhr.open('POST', '/room/getAllRoom', true);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         xhr.onreadystatechange = function() {
@@ -548,12 +548,12 @@
             name: name,
             password: hashedPassword
         };
-        let url = 'http://localhost:8080/room/insertRoom';
+        let url = '/room/insertRoom';
         let method = '添加';
 
         if (id) {
             room.id = parseInt(id);
-            url = 'http://localhost:8080/room/updateRoom';
+            url = '/room/updateRoom';
             method = '更新';
         }
 
@@ -584,7 +584,7 @@
     // 删除房间
     function deleteRoom(id) {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'http://localhost:8080/room/removeRoom', true);
+        xhr.open('POST', '/room/removeRoom', true);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         xhr.onreadystatechange = function() {
@@ -747,7 +747,7 @@
 
     async function init() {
         try {
-            const response = await fetch('http://localhost:8080/login/checkSession', {
+            const response = await fetch('/login/checkSession', {
                 method: 'GET',
                 credentials: 'include' // 包含cookie
             });
