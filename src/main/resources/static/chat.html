@@ -774,7 +774,8 @@
         const data = JSON.parse(event.data);
         handleServerMessage(data);
       } catch (e) {
-        addSystemMessage(event.data);
+        console.error('WS消息解析失败，原始数据：', event.data, '错误：', e);
+        // addSystemMessage(event.data);
       }
     };
     chatSocket.onclose = function() {
@@ -1235,19 +1236,25 @@
       updateMicBtn();
       return;
     }
+    // 新增：空值校验，防止undefined报错
+    if (!navigator || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      addSystemMessage('当前环境不支持麦克风设备，语音功能不可用（文字聊天不受影响）');
+      return;
+    }
+    // 原有麦克风授权逻辑不动
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      .then(function(stream) {
-        localStream = stream;
-        attachLocalAnalyser();
-        startLocalVolumeRaf();
-        updateMicBtn();
-        addSystemMessage('麦克风已就绪，点击"开麦"启用语音');
-        refreshDeviceList();
-      })
-      .catch(function(err) {
-        console.warn('获取麦克风失败：', err);
-        addSystemMessage('无法访问麦克风，语音功能不可用（文字聊天不受影响）');
-      });
+            .then(function(stream) {
+              localStream = stream;
+              attachLocalAnalyser();
+              startLocalVolumeRaf();
+              updateMicBtn();
+              addSystemMessage('麦克风已就绪，点击"开麦"启用语音');
+              refreshDeviceList();
+            })
+            .catch(function(err) {
+              console.warn('获取麦克风失败：', err);
+              addSystemMessage('无法访问麦克风，语音功能不可用（文字聊天不受影响）');
+            });
   }
 
   // 本地音量分析（检测自己是否在说话）
@@ -1378,7 +1385,16 @@
   // 创建/维护与某用户的对等连接
   function ensurePeerConnection(remoteUserId) {
     if (peerConnections[remoteUserId]) return peerConnections[remoteUserId];
-    const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    const config = {
+      iceServers: [
+        { urls: "stun:121.43.144.108:3478" },
+        {
+          urls: "turn:121.43.144.108:3478",
+          username: "rtcuser",
+          credential: "Rtc@123456"
+        }
+      ]
+    };
     const pc = new RTCPeerConnection(config);
     if (localStream) {
       localStream.getAudioTracks().forEach(function(track) {

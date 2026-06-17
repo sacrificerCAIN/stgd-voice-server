@@ -1,5 +1,6 @@
 server:
   port: 8080
+  address: 0.0.0.0  # 新增这一行，允许所有IP访问Web服务
   tcp-port: 6324
   udp-port: 6324
   servlet:
