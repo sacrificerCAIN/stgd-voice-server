@@ -306,6 +306,230 @@
       width: 1.2em; /* 和锁emoji宽度一致 */
       text-align: center;
     }
+
+    /* ==================== WebRTC 语音相关 ==================== */
+    .voice-btn {
+      padding: 10px 14px;
+      background: #4CAF50;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      min-width: 90px;
+      font-size: 14px;
+    }
+    .voice-btn.muted { background: #9e9e9e; }
+    .voice-btn:hover { filter: brightness(0.95); }
+    .voice-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .device-btn {
+      padding: 8px 12px;
+      background: #2196F3;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .device-btn:hover { background: #1976D2; }
+    /* 侧边栏设备操作区 */
+    .device-box {
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .device-box .device-btn {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+    .device-box .mic-test-btn {
+      width: 100%;
+      padding: 10px 12px;
+      background: #ff9800;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .device-box .mic-test-btn:hover { background: #f57c00; }
+    .device-box .mic-test-btn.active { background: #f44336; }
+    /* 语音控制栏（输入框上方） */
+    .voice-control-row {
+      padding: 8px 12px;
+      border-top: 1px solid #eee;
+      background: #fafafa;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .voice-control-row .voice-btn {
+      padding: 6px 14px;
+      font-size: 13px;
+      min-width: 100px;
+    }
+    /* 麦克风测试弹窗 - 音量条 */
+    .mic-test-box {
+      margin-top: 10px;
+      padding: 20px;
+      background: #f5f5f5;
+      border-radius: 6px;
+    }
+    .mic-test-status {
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 18px;
+      text-align: center;
+      line-height: 1.5;
+    }
+    .volume-bars-container {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .volume-bar-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 70px;
+    }
+    .volume-bar-label {
+      font-size: 12px;
+      color: #666;
+    }
+    .volume-bar-track {
+      width: 40px;
+      height: 100px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+    .volume-bar-fill {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(to top, #4caf50, #8bc34a, #cddc39, #ffeb3b, #ff9800, #f44336);
+      height: 0%;
+      transition: height 0.05s linear;
+    }
+    .volume-bar-fill.left { }
+    .volume-bar-fill.right { }
+    .volume-value {
+      font-size: 11px;
+      color: #888;
+      font-family: monospace;
+    }
+    .mic-test-actions {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .mic-test-actions button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .mic-test-actions button.start-btn { background: #4caf50; color: #fff; }
+    .mic-test-actions button.start-btn:hover { background: #43a047; }
+    .mic-test-actions button.stop-btn { background: #f44336; color: #fff; }
+    .mic-test-actions button.stop-btn:hover { background: #e53935; }
+    .mic-test-actions button:disabled { background: #ccc; cursor: not-allowed; }
+
+    /* 用户名字条右侧说话圆圈（仅当前房间用户显示） */
+    .room-user-item {
+      padding: 4px 12px 4px 50px;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: transparent;
+    }
+    .room-user-item .uname-left { flex: 1; }
+    .speak-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: transparent;
+      border: 2px solid transparent;
+      transition: all 0.15s ease;
+      margin-left: 8px;
+      flex-shrink: 0;
+    }
+    .speak-dot.active {
+      background: #2196F3;
+      border-color: #1976D2;
+      box-shadow: 0 0 8px rgba(33, 150, 243, 0.7);
+    }
+
+    /* 设备选择弹窗 */
+    .modal-mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-mask.show { display: flex; }
+    .modal-box {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px 24px;
+      min-width: 320px;
+      max-width: 90vw;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    }
+    .modal-box h3 {
+      margin: 0 0 14px;
+      font-size: 16px;
+      color: #333;
+    }
+    .modal-box label {
+      display: block;
+      font-size: 13px;
+      color: #555;
+      margin: 10px 0 4px;
+    }
+    .modal-box select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .modal-box .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .modal-box .modal-actions button {
+      padding: 6px 14px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .modal-box .btn-cancel { background: #e0e0e0; color: #333; }
+    .modal-box .btn-ok { background: #4CAF50; color: #fff; }
+    .voice-status {
+      font-size: 12px;
+      color: #888;
+      margin-right: 8px;
+    }
   </style>
 </head>
 <body>
@@ -324,6 +548,10 @@
       <input type="text" id="nickname" placeholder="请输入昵称">
       <button onclick="setNickname()">设置昵称</button>
     </div>
+    <div class="device-box">
+      <button class="device-btn" onclick="openDeviceModal()">选择设备</button>
+      <button class="mic-test-btn" id="micTestBtn" onclick="openMicTestModal()">麦克风测试</button>
+    </div>
     <div class="admin-box" id="adminBox" style="display:none">
       <h2>房间管理</h2>
       <input type="text" id="adminRoomName" class="admin-input" placeholder="房间名称">
@@ -338,11 +566,63 @@
   <div class="chat-area">
     <div class="chat-header" id="chatHeader">请选择房间</div>
     <div class="messages" id="messages"></div>
+    <div class="voice-control-row">
+      <button class="voice-btn" id="micBtn" onclick="toggleMic()">🎤 开麦</button>
+      <span class="voice-status" id="voiceStatusText">默认闭麦状态</span>
+    </div>
     <div class="input-area">
       <textarea id="messageInput" placeholder="输入消息... (Enter发送, Shift+Enter换行)"></textarea>
       <div class="btns">
         <button id="sendBtn" onclick="sendMessage()">发送</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 设备选择弹窗 -->
+<div class="modal-mask" id="deviceModal">
+  <div class="modal-box">
+    <h3>音频设备选择</h3>
+    <label for="micSelect">麦克风</label>
+    <select id="micSelect"></select>
+    <label for="speakerSelect">输出设备（扬声器）</label>
+    <select id="speakerSelect"></select>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeDeviceModal()">取消</button>
+      <button class="btn-ok" onclick="applyDevice()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 麦克风测试弹窗 -->
+<div class="modal-mask" id="micTestModal">
+  <div class="modal-box" style="min-width: 380px;">
+    <h3>🎙️ 麦克风测试</h3>
+    <div class="mic-test-box">
+      <div class="mic-test-status" id="micTestStatus">点击"开始测试"后，请对着麦克风说话</div>
+      <div class="volume-bars-container">
+        <div class="volume-bar-wrapper">
+          <div class="volume-bar-label">左声道</div>
+          <div class="volume-bar-track">
+            <div class="volume-bar-fill left" id="volBarLeft"></div>
+          </div>
+          <div class="volume-value" id="volValLeft">0%</div>
+        </div>
+        <div class="volume-bar-wrapper">
+          <div class="volume-bar-label">右声道</div>
+          <div class="volume-bar-track">
+            <div class="volume-bar-fill right" id="volBarRight"></div>
+          </div>
+          <div class="volume-value" id="volValRight">0%</div>
+        </div>
+      </div>
+      <div class="mic-test-actions">
+        <button class="start-btn" id="micTestStartBtn" onclick="startMicTest()">▶ 开始测试</button>
+        <button class="stop-btn" id="micTestStopBtn" onclick="stopMicTest()" disabled>■ 停止测试</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ok" onclick="closeMicTestModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -508,6 +788,8 @@
       document.getElementById('chatHeader').textContent = data.roomName;
       refreshRoomListHighlight();
       addSystemMessage('已加入房间 [' + data.roomName + ']');
+      // 进入房间后尝试启动 WebRTC 语音
+      startWebRtcIfReady();
     } else if (type === 'logout') {
       addSystemMessage('已退出');
     } else if (type === 'system') {
@@ -523,10 +805,15 @@
       handleRoomList(data);
     } else if (type === 'roomUsers') {
       handleRoomUsers(data);
+      ensurePeerConnectionsForRoom();
     } else if (type === 'userJoined') {
       handleUserJoined(data);
+      ensurePeerConnectionsForRoom();
     } else if (type === 'userLeft') {
       handleUserLeft(data);
+      syncPeersAfterRoomChange();
+    } else if (type === 'webrtc') {
+      handleWebRtcMessage(data);
     }
   }
 
@@ -747,7 +1034,9 @@
         const userDiv = document.createElement('div');
         userDiv.className = 'room-user-item';
         if(u.userId === currentUserId) userDiv.classList.add('self');
-        userDiv.textContent = u.userName;
+        userDiv.dataset.userId = u.userId;
+        userDiv.innerHTML = '<span class="uname-left"></span><span class="speak-dot" data-user-id="' + u.userId + '"></span>';
+        userDiv.querySelector('.uname-left').textContent = u.userName;
         // 插入到房间li的下一个兄弟位置
         li.after(userDiv);
       });
@@ -901,6 +1190,562 @@
     const hash = CryptoJS.SHA256(message);
     return hash.toString(CryptoJS.enc.Hex);
   }
+
+  // ==================== WebRTC 语音 ====================
+
+  // 当前本地媒体流
+  let localStream = null;
+  // 选中的设备 ID
+  let selectedMicId = '';
+  let selectedSpeakerId = '';
+  // 麦克风是否静音（默认闭麦）
+  let micMuted = true;
+  // 远端对等连接表：userId -> RTCPeerConnection
+  const peerConnections = {};
+  // 远端音频元素表：userId -> HTMLAudioElement
+  const peerAudios = {};
+  // 本地音量分析器与刷新句柄
+  let localAnalyser = null;
+  let localRafId = null;
+  // 麦克风测试相关状态
+  let micTestStream = null;
+  let micTestAudioCtx = null;
+  let micTestAnalyser = null;
+  let micTestRafId = null;
+  let micTestLoopbackNode = null;
+
+  // 进入房间后，若还没初始化媒体流，则请求麦克风权限
+  function startWebRtcIfReady() {
+    if (!currentUserName) return;
+    if (localStream) {
+      updateMicBtn();
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then(function(stream) {
+        localStream = stream;
+        attachLocalAnalyser();
+        startLocalVolumeRaf();
+        updateMicBtn();
+        addSystemMessage('麦克风已就绪，点击"开麦"启用语音');
+        refreshDeviceList();
+      })
+      .catch(function(err) {
+        console.warn('获取麦克风失败：', err);
+        addSystemMessage('无法访问麦克风，语音功能不可用（文字聊天不受影响）');
+      });
+  }
+
+  // 本地音量分析（检测自己是否在说话）
+  function attachLocalAnalyser() {
+    if (!localStream) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const source = ctx.createMediaStreamSource(localStream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      localAnalyser = analyser;
+    } catch (e) {
+      console.warn('创建本地音量分析器失败', e);
+    }
+  }
+
+  function computeRms(analyser) {
+    const arr = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(arr);
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+      const v = (arr[i] - 128) / 128.0;
+      sum += v * v;
+    }
+    return Math.sqrt(sum / arr.length);
+  }
+
+  function startLocalVolumeRaf() {
+    if (localRafId) cancelAnimationFrame(localRafId);
+    function loop() {
+      localRafId = requestAnimationFrame(loop);
+      if (!localAnalyser) return;
+      const rms = computeRms(localAnalyser);
+      const selfDot = document.querySelector('.room-user-item.self .speak-dot');
+      if (selfDot) {
+        const speaking = !micMuted && rms > 0.03;
+        if (speaking) selfDot.classList.add('active');
+        else selfDot.classList.remove('active');
+      }
+    }
+    loop();
+  }
+
+  // 为远端 peer 创建音量检测
+  function attachRemoteVolumeDetection(userId, audioEl) {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const source = ctx.createMediaElementSource(audioEl);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      source.connect(ctx.destination);
+      const arr = new Uint8Array(analyser.fftSize);
+      function tick() {
+        analyser.getByteTimeDomainData(arr);
+        let sum = 0;
+        for (let i = 0; i < arr.length; i++) {
+          const v = (arr[i] - 128) / 128.0;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / arr.length);
+        const dot = document.querySelector('.room-user-item[data-user-id="' + userId + '"] .speak-dot');
+        if (dot) {
+          if (rms > 0.03) dot.classList.add('active');
+          else dot.classList.remove('active');
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    } catch (e) {
+      console.warn('远端音量检测失败', e);
+    }
+  }
+
+  // 发送 WebRTC 信令到房间（type:13）
+  function sendWebRtcSignal(targetUserId, payload) {
+    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
+    chatSocket.send(JSON.stringify({
+      type: 13,
+      targetUserId: targetUserId || '',
+      payload: typeof payload === 'string' ? payload : JSON.stringify(payload)
+    }));
+  }
+
+  // 处理服务器转发来的 webrtc 信令
+  function handleWebRtcMessage(data) {
+    if (!data) return;
+    const fromId = data.fromUserId;
+    if (!fromId || fromId === currentUserId) return;
+    const targetId = data.targetUserId;
+    if (targetId && targetId !== currentUserId) return;
+    let obj = null;
+    try {
+      obj = typeof data.payload === 'string' ? JSON.parse(data.payload || '{}') : data.payload;
+    } catch(e) {
+      console.warn('解析 webrtc payload 失败', e);
+      return;
+    }
+    if (!obj) return;
+    const kind = obj.kind;
+    const innerData = obj.data;
+    if (kind === 'offer') {
+      ensurePeerConnection(fromId);
+      const pc = peerConnections[fromId];
+      pc.setRemoteDescription(new RTCSessionDescription(innerData))
+        .then(function() { return pc.createAnswer(); })
+        .then(function(answer) { return pc.setLocalDescription(answer); })
+        .then(function() {
+          sendWebRtcSignal(fromId, { kind: 'answer', data: pc.localDescription });
+        })
+        .catch(function(e) { console.warn('处理 offer 失败', e); });
+    } else if (kind === 'answer') {
+      const pc = peerConnections[fromId];
+      if (!pc) return;
+      pc.setRemoteDescription(new RTCSessionDescription(innerData))
+        .catch(function(e) { console.warn('处理 answer 失败', e); });
+    } else if (kind === 'ice') {
+      const pc = peerConnections[fromId];
+      if (!pc || !innerData) return;
+      pc.addIceCandidate(new RTCIceCandidate(innerData))
+        .catch(function(e) { console.warn('添加 ice candidate 失败', e); });
+    }
+  }
+
+  // 创建/维护与某用户的对等连接
+  function ensurePeerConnection(remoteUserId) {
+    if (peerConnections[remoteUserId]) return peerConnections[remoteUserId];
+    const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    const pc = new RTCPeerConnection(config);
+    if (localStream) {
+      localStream.getAudioTracks().forEach(function(track) {
+        pc.addTrack(track, localStream);
+      });
+    }
+    pc.onicecandidate = function(ev) {
+      if (ev.candidate) {
+        sendWebRtcSignal(remoteUserId, { kind: 'ice', data: ev.candidate });
+      }
+    };
+    pc.onconnectionstatechange = function() {
+      console.log('PC[' + remoteUserId + '] state:', pc.connectionState);
+    };
+    pc.ontrack = function(ev) {
+      if (!ev.streams || !ev.streams[0]) return;
+      let audioEl = peerAudios[remoteUserId];
+      if (!audioEl) {
+        audioEl = document.createElement('audio');
+        audioEl.autoplay = true;
+        audioEl.setAttribute('playsinline', '');
+        document.body.appendChild(audioEl);
+        peerAudios[remoteUserId] = audioEl;
+        attachRemoteVolumeDetection(remoteUserId, audioEl);
+      }
+      if (audioEl.srcObject !== ev.streams[0]) {
+        audioEl.srcObject = ev.streams[0];
+      }
+      if (selectedSpeakerId && typeof audioEl.setSinkId === 'function') {
+        audioEl.setSinkId(selectedSpeakerId).catch(function(e) {
+          console.warn('设置扬声器失败', e);
+        });
+      }
+    };
+    peerConnections[remoteUserId] = pc;
+    return pc;
+  }
+
+  // 策略：userId 字典序较小的一方主动发起 offer，避免双方重复建连
+  function shouldSendOffer(remoteUserId) {
+    if (!currentUserId || !remoteUserId) return false;
+    return currentUserId < remoteUserId;
+  }
+
+  // 遍历当前房间用户，为每个人建立/维护对等连接
+  function ensurePeerConnectionsForRoom() {
+    const info = roomUserMap[currentRoomId];
+    if (!info || !info.users) return;
+    info.users.forEach(function(u) {
+      if (!u.userId || u.userId === currentUserId) return;
+      const pc = ensurePeerConnection(u.userId);
+      if (shouldSendOffer(u.userId) && pc.signalingState === 'stable') {
+        const senders = pc.getSenders();
+        const hasAudioSender = senders && senders.some(function(s) {
+          return s.track && s.track.kind === 'audio';
+        });
+        if (!hasAudioSender && localStream) {
+          localStream.getAudioTracks().forEach(function(track) {
+            pc.addTrack(track, localStream);
+          });
+        }
+        pc.createOffer()
+          .then(function(offer) { return pc.setLocalDescription(offer); })
+          .then(function() {
+            sendWebRtcSignal(u.userId, { kind: 'offer', data: pc.localDescription });
+          })
+          .catch(function(e) { console.warn('发起 offer 失败', e); });
+      }
+    });
+  }
+
+  // 用户离开房间后清理不再使用的对等连接
+  function syncPeersAfterRoomChange() {
+    const currentUsers = {};
+    const info = roomUserMap[currentRoomId];
+    if (info && Array.isArray(info.users)) {
+      info.users.forEach(function(u) { currentUsers[u.userId] = true; });
+    }
+    Object.keys(peerConnections).forEach(function(uid) {
+      if (!currentUsers[uid]) {
+        try { peerConnections[uid].close(); } catch(e) {}
+        delete peerConnections[uid];
+        const audioEl = peerAudios[uid];
+        if (audioEl) {
+          try { audioEl.pause(); audioEl.srcObject = null; } catch(e) {}
+          if (audioEl.parentNode) audioEl.parentNode.removeChild(audioEl);
+          delete peerAudios[uid];
+        }
+      }
+    });
+  }
+
+  // 开麦/闭麦切换
+  function toggleMic() {
+    if (!localStream) {
+      alert('麦克风尚未就绪，请先点击"选择设备"授权');
+      return;
+    }
+    micMuted = !micMuted;
+    localStream.getAudioTracks().forEach(function(track) {
+      track.enabled = !micMuted;
+    });
+    Object.keys(peerConnections).forEach(function(uid) {
+      const pc = peerConnections[uid];
+      if (!pc) return;
+      try {
+        pc.getSenders().forEach(function(sender) {
+          if (sender.track && sender.track.kind === 'audio') {
+            sender.track.enabled = !micMuted;
+          }
+        });
+      } catch(e) {}
+    });
+    updateMicBtn();
+  }
+
+  function updateMicBtn() {
+    const btn = document.getElementById('micBtn');
+    const statusText = document.getElementById('voiceStatusText');
+    if (!btn) return;
+    if (micMuted) {
+      btn.textContent = '🎤 开麦';
+      btn.classList.remove('muted');
+      if (statusText) statusText.textContent = '麦克风已静音';
+    } else {
+      btn.textContent = '🔇 闭麦';
+      btn.classList.add('muted');
+      if (statusText) statusText.textContent = '麦克风已开启';
+    }
+  }
+
+  // ========= 麦克风测试功能 =========
+  function openMicTestModal() {
+    const m = document.getElementById('micTestModal');
+    if (m) m.classList.add('show');
+    // 重置状态
+    const testBtn = document.getElementById('micTestBtn');
+    if (testBtn) testBtn.classList.add('active');
+  }
+
+  function closeMicTestModal() {
+    stopMicTest();
+    const m = document.getElementById('micTestModal');
+    if (m) m.classList.remove('show');
+    const testBtn = document.getElementById('micTestBtn');
+    if (testBtn) testBtn.classList.remove('active');
+  }
+
+  function startMicTest() {
+    const constraints = selectedMicId
+      ? { audio: { deviceId: { exact: selectedMicId } }, video: false }
+      : { audio: true, video: false };
+
+    navigator.mediaDevices.getUserMedia(constraints)
+      .then(function(stream) {
+        micTestStream = stream;
+
+        // 创建音频上下文
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        micTestAudioCtx = new AudioCtx();
+        const source = micTestAudioCtx.createMediaStreamSource(stream);
+
+        // 创建分析器（用于音量条显示）
+        micTestAnalyser = micTestAudioCtx.createAnalyser();
+        micTestAnalyser.fftSize = 512;
+        source.connect(micTestAnalyser);
+
+        // 将音频回传到扬声器（让用户能听到自己的声音）
+        // 使用 gainNode 控制回传音量，避免啸叫
+        const gainNode = micTestAudioCtx.createGain();
+        gainNode.gain.value = 0.5; // 设置回传音量为 50%
+        source.connect(gainNode);
+        gainNode.connect(micTestAudioCtx.destination);
+        micTestLoopbackNode = gainNode;
+
+        // 更新UI状态
+        const statusEl = document.getElementById('micTestStatus');
+        const startBtn = document.getElementById('micTestStartBtn');
+        const stopBtn = document.getElementById('micTestStopBtn');
+        if (statusEl) statusEl.textContent = '🔊 测试中...请对着麦克风说话';
+        if (startBtn) startBtn.disabled = true;
+        if (stopBtn) stopBtn.disabled = false;
+
+        // 开始刷新音量条
+        startMicTestVolumeRaf();
+      })
+      .catch(function(err) {
+        console.warn('麦克风测试启动失败:', err);
+        const statusEl = document.getElementById('micTestStatus');
+        if (statusEl) statusEl.textContent = '❌ 无法访问麦克风: ' + (err && err.message ? err.message : err);
+      });
+  }
+
+  function stopMicTest() {
+    // 停止动画刷新
+    if (micTestRafId) {
+      cancelAnimationFrame(micTestRafId);
+      micTestRafId = null;
+    }
+
+    // 停止媒体流
+    if (micTestStream) {
+      micTestStream.getTracks().forEach(function(track) {
+        try { track.stop(); } catch(e) {}
+      });
+      micTestStream = null;
+    }
+
+    // 关闭音频上下文
+    if (micTestAudioCtx) {
+      try { micTestAudioCtx.close(); } catch(e) {}
+      micTestAudioCtx = null;
+    }
+
+    micTestAnalyser = null;
+    micTestLoopbackNode = null;
+
+    // 重置UI
+    const statusEl = document.getElementById('micTestStatus');
+    const startBtn = document.getElementById('micTestStartBtn');
+    const stopBtn = document.getElementById('micTestStopBtn');
+    const barLeft = document.getElementById('volBarLeft');
+    const barRight = document.getElementById('volBarRight');
+    const valLeft = document.getElementById('volValLeft');
+    const valRight = document.getElementById('volValRight');
+    if (statusEl) statusEl.textContent = '点击"开始测试"后，请对着麦克风说话';
+    if (startBtn) startBtn.disabled = false;
+    if (stopBtn) stopBtn.disabled = true;
+    if (barLeft) barLeft.style.height = '0%';
+    if (barRight) barRight.style.height = '0%';
+    if (valLeft) valLeft.textContent = '0%';
+    if (valRight) valRight.textContent = '0%';
+  }
+
+  function startMicTestVolumeRaf() {
+    if (micTestRafId) cancelAnimationFrame(micTestRafId);
+    function loop() {
+      micTestRafId = requestAnimationFrame(loop);
+      if (!micTestAnalyser) return;
+
+      // 计算当前音量 (RMS)
+      const arr = new Uint8Array(micTestAnalyser.fftSize);
+      micTestAnalyser.getByteTimeDomainData(arr);
+      let sum = 0;
+      for (let i = 0; i < arr.length; i++) {
+        const v = (arr[i] - 128) / 128.0;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / arr.length);
+
+      // 将 RMS 转换为百分比（RMS 通常在 0~0.5 范围）
+      // 增加灵敏度：放大到 0~100%
+      let percent = Math.min(100, Math.round(rms * 250));
+
+      // 左右声道模拟：基于音频波形的相位差异产生左右轻微不同
+      // 用 fft 数据的前后两半做左右区分，模拟立体声效果
+      const freqArr = new Uint8Array(micTestAnalyser.frequencyBinCount);
+      micTestAnalyser.getByteFrequencyData(freqArr);
+      let leftSum = 0, rightSum = 0;
+      const halfLen = freqArr.length / 2;
+      for (let i = 0; i < halfLen; i++) {
+        leftSum += freqArr[i];
+      }
+      for (let i = halfLen; i < freqArr.length; i++) {
+        rightSum += freqArr[i];
+      }
+      const leftAvg = leftSum / halfLen / 255;
+      const rightAvg = rightSum / halfLen / 255;
+
+      // 综合 RMS 和频谱平均值，产生左右音量百分比
+      const leftPercent = Math.min(100, Math.round((rms * 180 + leftAvg * 60) * 1.2));
+      const rightPercent = Math.min(100, Math.round((rms * 180 + rightAvg * 60) * 1.2));
+
+      // 更新UI
+      const barLeft = document.getElementById('volBarLeft');
+      const barRight = document.getElementById('volBarRight');
+      const valLeft = document.getElementById('volValLeft');
+      const valRight = document.getElementById('volValRight');
+      if (barLeft) barLeft.style.height = leftPercent + '%';
+      if (barRight) barRight.style.height = rightPercent + '%';
+      if (valLeft) valLeft.textContent = leftPercent + '%';
+      if (valRight) valRight.textContent = rightPercent + '%';
+    }
+    loop();
+  }
+
+  // ========= 设备选择弹窗 =========
+  function openDeviceModal() {
+    refreshDeviceList();
+    const m = document.getElementById('deviceModal');
+    if (m) m.classList.add('show');
+  }
+  function closeDeviceModal() {
+    const m = document.getElementById('deviceModal');
+    if (m) m.classList.remove('show');
+  }
+  function refreshDeviceList() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    navigator.mediaDevices.enumerateDevices().then(function(devices) {
+      const micSel = document.getElementById('micSelect');
+      const speakerSel = document.getElementById('speakerSelect');
+      if (!micSel || !speakerSel) return;
+      micSel.innerHTML = '';
+      speakerSel.innerHTML = '';
+      devices.forEach(function(d) {
+        if (d.kind === 'audioinput') {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || ('麦克风 ' + (micSel.options.length + 1));
+          if (selectedMicId && d.deviceId === selectedMicId) opt.selected = true;
+          micSel.appendChild(opt);
+        } else if (d.kind === 'audiooutput') {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || ('扬声器 ' + (speakerSel.options.length + 1));
+          if (selectedSpeakerId && d.deviceId === selectedSpeakerId) opt.selected = true;
+          speakerSel.appendChild(opt);
+        }
+      });
+      if (speakerSel.options.length === 0) {
+        speakerSel.style.display = 'none';
+      } else {
+        speakerSel.style.display = '';
+      }
+    }).catch(function(e) {
+      console.warn('枚举设备失败', e);
+    });
+  }
+
+  function applyDevice() {
+    const micSel = document.getElementById('micSelect');
+    const speakerSel = document.getElementById('speakerSelect');
+    const newMic = micSel && micSel.value ? micSel.value : '';
+    const newSpeaker = speakerSel && speakerSel.value ? speakerSel.value : '';
+    selectedMicId = newMic;
+    selectedSpeakerId = newSpeaker;
+    const constraints = { audio: newMic ? { deviceId: { exact: newMic } } : true, video: false };
+    navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
+      if (localStream) {
+        localStream.getTracks().forEach(function(t) { try { t.stop(); } catch(e){} });
+      }
+      localStream = stream;
+      attachLocalAnalyser();
+      startLocalVolumeRaf();
+      const newTracks = stream.getAudioTracks();
+      Object.keys(peerConnections).forEach(function(uid) {
+        const pc = peerConnections[uid];
+        if (!pc) return;
+        try {
+          const senders = pc.getSenders().filter(function(s) {
+            return s.track && s.track.kind === 'audio';
+          });
+          if (senders.length > 0 && newTracks.length > 0) {
+            senders[0].replaceTrack(newTracks[0]);
+          } else if (newTracks.length > 0) {
+            pc.addTrack(newTracks[0], stream);
+            pc.createOffer().then(function(offer) { return pc.setLocalDescription(offer); })
+              .then(function() {
+                sendWebRtcSignal(uid, { kind: 'offer', data: pc.localDescription });
+              }).catch(function(e){ console.warn('重新offer失败',e); });
+          }
+        } catch(e) { console.warn('替换 track 失败', e); }
+      });
+      Object.keys(peerAudios).forEach(function(uid) {
+        const audioEl = peerAudios[uid];
+        if (audioEl && selectedSpeakerId && typeof audioEl.setSinkId === 'function') {
+          audioEl.setSinkId(selectedSpeakerId).catch(function(e){ console.warn('setSinkId失败', e); });
+        }
+      });
+      localStream.getAudioTracks().forEach(function(t) { t.enabled = !micMuted; });
+      updateMicBtn();
+      addSystemMessage('音频设备已更新');
+    }).catch(function(err) {
+      console.warn('切换麦克风失败', err);
+      alert('切换麦克风失败：' + (err && err.message ? err.message : err));
+    });
+    closeDeviceModal();
+  }
+
+  // 初始按钮状态
+  updateMicBtn();
 
   // 刷新/关闭弹窗确认，确认则离开房间
   window.addEventListener('beforeunload', function(e) {

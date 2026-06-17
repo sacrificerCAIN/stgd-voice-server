@@ -99,6 +99,7 @@ public class ChatEndpoint {
                 case 10: handleInsertRoom(session, message); break;
                 case 11: handleRemoveRoom(session, message); break;
                 case 12: handleUpdateRoom(session, message); break;
+                case 13: handleWebRtcSignal(session, message); break;
                 default: sendSystem(session, "未知消息类型");
             }
         } catch (Exception e) {
@@ -194,6 +195,42 @@ public class ChatEndpoint {
         String payload = message.getPayload();
         if (payload == null) payload = "";
         connectManager.publishRoomMessageWs(roomId, userName, payload, httpSessionId);
+    }
+
+    /**
+     * WebRTC 信令转发（type=13）。
+     * 消息结构：{type:13, targetUserId:"...", payload:"{kind:offer|answer|ice, data:...}"}
+     * targetUserId 为空时广播到房间内其他所有人。
+     */
+    private void handleWebRtcSignal(Session session, Message message) {
+        if (connectManager == null) {
+            sendSystem(session, "系统未就绪");
+            return;
+        }
+        String userName = connectManager.getWsUserName(SessionUtil.getHttpSessionId(session));
+        if (userName == null) {
+            sendSystem(session, "请先设置昵称");
+            return;
+        }
+        String httpSessionId = SessionUtil.getHttpSessionId(session);
+        Integer roomId = connectManager.getWsRoomId(httpSessionId);
+        if (roomId == null) {
+            sendSystem(session, "请先加入房间");
+            return;
+        }
+        String targetUserId = message.getTargetUserId();
+        String payload = message.getPayload();
+        if (payload == null) payload = "";
+        // 构造转发消息，附带 fromUserId 方便接收方过滤
+        JSONObject forward = new JSONObject();
+        forward.put("type", "webrtc");
+        forward.put("roomId", roomId);
+        forward.put("fromUserId", httpSessionId);
+        forward.put("fromUserName", userName);
+        forward.put("targetUserId", targetUserId);
+        forward.put("payload", payload);
+        String forwardStr = forward.toJSONString();
+        connectManager.publishRoomWebRtcWs(roomId, httpSessionId, targetUserId, forwardStr);
     }
 
     private void handlePrivateMessage(Session session, Message message) {

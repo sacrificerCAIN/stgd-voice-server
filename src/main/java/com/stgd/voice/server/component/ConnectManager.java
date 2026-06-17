@@ -95,6 +95,7 @@ public class ConnectManager {
 		roomList.forEach(room -> roomMap.put(room.getId(), room));
 		System.out.println("房间初始化完成");
 	}
+
 	public void addClient(ChannelHandlerContext ctx){
 		channelGroup.add(ctx.channel());
 		channelWithStringIdMap.put(ctx.channel().id().asLongText(), ctx.channel().id());
@@ -510,6 +511,28 @@ public class ConnectManager {
 			if (session != null) {
 				if (StringUtils.equals(sessionId, SessionUtil.getHttpSessionId(session))) continue;
 				sendToWs(session, wsText);
+			}
+		}
+	}
+
+	/**
+	 * WebRTC 信令转发：将 forwardText 发送到房间内其他成员。
+	 * 若 targetUserId 不为空，则只发送到目标用户（点对点）；否则发送到房间内除 sourceSessionId 外的所有人。
+	 */
+	public void publishRoomWebRtcWs(Integer roomId, String sourceSessionId, String targetUserId, String forwardText) {
+		if (roomId == null || forwardText == null) return;
+		Room room = roomMap.get(roomId);
+		if (room == null) return;
+		if (sourceSessionId == null) return;
+
+		boolean hasTarget = targetUserId != null && !targetUserId.trim().isEmpty();
+
+		for (String idStr : room.getUserChannelIdSet()) {
+			if (StringUtils.equals(idStr, sourceSessionId)) continue;
+			if (hasTarget && !StringUtils.equals(idStr, targetUserId)) continue;
+			Session session = wsSessionMap.get(idStr);
+			if (session != null) {
+				sendToWs(session, forwardText);
 			}
 		}
 	}
