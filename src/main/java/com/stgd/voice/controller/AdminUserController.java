@@ -26,6 +26,9 @@ public class AdminUserController {
 
 	@PostMapping("removeAdminUser")
 	public Integer removeAdminUser(@RequestParam Integer id) {
+		if (id == 1){
+			return 0;
+		}
 		return adminUserMapper.deleteById(id);
 	}
 

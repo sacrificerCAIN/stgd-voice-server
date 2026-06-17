@@ -669,50 +669,64 @@
   }
 
   async function init() {
+    let result = {};
     try {
       const resp = await fetch('/login/checkSession', { credentials: 'include' });
-      const result = await resp.json();
-      if (!result.isAuthenticated) {
-        alert('请先登录');
-        window.location.href = '/index.html';
-        return;
+      result = await resp.json();
+    } catch (e) {
+      console.warn('会话检查失败，将以游客模式继续：', e);
+      result = {};
+    }
+
+    try {
+      const isLoggedIn = result.isAuthenticated === true;
+
+      // 判断当前用户是否为管理员（只有 super 用户登录时才有权限）
+      // 注意：isAdmin 由后端根据 session 中是否存在 username 决定
+      isAdminUser = result.isAdmin === true && result.username != null;
+
+      if (isLoggedIn) {
+        // 已登录：使用后端返回的真实用户名
+        const safeUsername = (result.username && typeof result.username === 'string' && result.username.trim().length > 0)
+                ? result.username.trim() : '登录用户';
+        document.getElementById('loginUser').textContent = safeUsername;
+        // 保存真实登录用户名，用于权限校验（WebSocket URL 中传递给后端）
+        currentLoginUser = safeUsername;
+        currentSessionId = result.sessionId;
+        if (isAdminUser) {
+          var adminBox = document.getElementById('adminBox');
+          if (adminBox) adminBox.style.display = 'block';
+          var dashboardBtn = document.getElementById('dashboardBtn');
+          if (dashboardBtn) dashboardBtn.style.display = 'inline-block';
+        }
+      } else {
+        // 未登录：游客模式
+        document.getElementById('loginUser').textContent = '游客';
+        // 未登录时 currentLoginUser 必须为 null，不作为 WebSocket URL 参数传递
+        currentLoginUser = null;
+        // 后端会在建立 WebSocket 时生成一个 sessionId（即使未登录），
+        // 这里先占位，等收到后端 WebSocket 的 type:login 消息后再赋值
+        currentSessionId = result.sessionId || null;
       }
+
       //请求房间
       if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
         try { chatSocket.send(JSON.stringify({ type: 8 })); } catch(e) {}
-      }
-      // 防止后端返回 null/undefined 时页面显示 "undefined"
-      const safeUsername = (result.username && typeof result.username === 'string' && result.username.trim().length > 0)
-              ? result.username.trim() : 'unknow';
-      document.getElementById('loginUser').textContent = safeUsername;
-      // 保存真实登录用户名（非用户自定义昵称），用于权限校验
-      currentLoginUser = safeUsername === 'unknow' ? null : safeUsername;
-      // 根据后端返回的isAdmin决定是否显示管理功能
-      isAdminUser = result.isAdmin === true;
-      currentSessionId = result.sessionId;
-      if (isAdminUser) {
-        var adminBox = document.getElementById('adminBox');
-        if (adminBox) adminBox.style.display = 'block';
-        var dashboardBtn = document.getElementById('dashboardBtn');
-        if (dashboardBtn) dashboardBtn.style.display = 'inline-block';
       }
 
       const savedNick = getCookie("chatNickname");
       if (savedNick && savedNick.trim() !== "") {
         // 把cookie里的昵称填入输入框
         document.getElementById("nickname").value = savedNick;
-        // 连接ws
-        connectChat();
-      } else {
-        // 没有保存的昵称，正常连接ws
-        connectChat();
       }
-
-      // 房间列表将通过 WebSocket 推送
+      // 连接 WebSocket（无论是否登录都连接）
+      connectChat();
     } catch (e) {
-      console.error(e);
-      alert('会话验证失败，请重新登录');
-      window.location.href = '/index.html';
+      console.error('初始化失败：', e);
+      // 尝试直接连接 WebSocket（跳过会话检查）
+      currentLoginUser = null;
+      document.getElementById('loginUser').textContent = '游客';
+      connectChat();
     }
   }
 
@@ -852,28 +866,28 @@
       const tree = document.createElement('div');
       tree.className = 'user-tree';
       li.appendChild(tree);
-      // 管理员操作按钮（只有 super 用户可见）
-      if (isAdminUser) {
-        const actions = document.createElement('div');
-        actions.className = 'room-actions';
-        const editBtn = document.createElement('button');
-        editBtn.className = 'btn-edit';
-        editBtn.textContent = '编辑';
-        editBtn.onclick = function(e) {
-          e.stopPropagation();
-          promptUpdateRoom(room);
-        };
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'btn-delete';
-        deleteBtn.textContent = '删除';
-        deleteBtn.onclick = function(e) {
-          e.stopPropagation();
-          confirmWsRemoveRoom(room);
-        };
-        actions.appendChild(editBtn);
-        actions.appendChild(deleteBtn);
-        li.appendChild(actions);
-      }
+      // 管理员操作按钮
+      // if (isAdminUser) {
+      //   const actions = document.createElement('div');
+      //   actions.className = 'room-actions';
+      //   const editBtn = document.createElement('button');
+      //   editBtn.className = 'btn-edit';
+      //   editBtn.textContent = '编辑';
+      //   editBtn.onclick = function(e) {
+      //     e.stopPropagation();
+      //     promptUpdateRoom(room);
+      //   };
+      //   const deleteBtn = document.createElement('button');
+      //   deleteBtn.className = 'btn-delete';
+      //   deleteBtn.textContent = '删除';
+      //   deleteBtn.onclick = function(e) {
+      //     e.stopPropagation();
+      //     confirmWsRemoveRoom(room);
+      //   };
+      //   actions.appendChild(editBtn);
+      //   actions.appendChild(deleteBtn);
+      //   li.appendChild(actions);
+      // }
       // 双击整行房间直接加入房间
       li.addEventListener('dblclick', function(e) {
         e.stopPropagation();

@@ -1,5 +1,6 @@
 package com.stgd.voice.controller;
 
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.stgd.voice.Util.SessionUtil;
 import com.stgd.voice.entity.AdminUser;
 import com.stgd.voice.mapper.AdminUserMapper;
@@ -45,20 +46,35 @@ public class LoginController {
 	@GetMapping("checkSession")
 	public Map<String, Object> checkSession(HttpServletRequest request) {
 		Map<String, Object> response = new HashMap<>();
+		// 先尝试获取现有 session，不自动创建
 		HttpSession httpSession = request.getSession(false);
 
 		if (httpSession != null) {
 			// 每次检查会话时刷新过期时间
 			httpSession.setMaxInactiveInterval(259200);
-			response.put("isAuthenticated", true);
-			response.put("id", httpSession.getAttribute("id"));
 			String username = (String) httpSession.getAttribute("username");
-			response.put("username", username);
-			response.put("sessionId", httpSession.getId());
-			// 只有 super 用户拥有房间增删改权限
-			response.put("isAdmin", "super".equals(username));
+			if (StringUtils.isNotBlank(username)) {
+				// 已登录用户
+				response.put("isAuthenticated", true);
+				response.put("id", httpSession.getAttribute("id"));
+				response.put("username", username);
+				response.put("sessionId", httpSession.getId());
+				// 只有登录用户才是管理员
+				response.put("isAdmin", true);
+			} else {
+				// session 存在但未登录（可能是自动创建的空 session）
+				response.put("isAuthenticated", false);
+				response.put("sessionId", httpSession.getId());
+				response.put("username", null);
+				response.put("isAdmin", false);
+			}
 		} else {
+			// 未登录：创建一个新 session，以便前端能正常使用 chat 功能
+			HttpSession newSession = request.getSession(true);
 			response.put("isAuthenticated", false);
+			response.put("sessionId", newSession.getId());
+			response.put("username", null);
+			response.put("isAdmin", false);
 		}
 
 		return response;
