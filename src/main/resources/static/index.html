@@ -48,6 +48,7 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            margin-top: 10px;
         }
         button:hover {
             background-color: #45a049;
@@ -72,6 +73,7 @@
             <input type="password" id="password" name="password" required>
         </div>
         <button type="button" onclick="submitLogin()">登录</button>
+        <button type="button" onclick="gotoChat()">游客模式</button>
         <div id="message"></div>
     </form>
 </div>
@@ -118,13 +120,7 @@
             if (result.code == 1) {
                 messageEl.textContent = '登录成功';
                 messageEl.style.color = 'green';
-                // super 管理员进入后台，其他账号跳转到聊天室
-                const username = (result.username || '').toLowerCase();
-                if (username === 'super') {
-                    window.location.href = '/dashboard.html';
-                } else {
-                    window.location.href = '/chat.html';
-                }
+                window.location.href = '/dashboard.html';
             } else {
                 messageEl.textContent = result.message || '用户名或密码错误';
                 messageEl.style.color = 'red';
@@ -143,22 +139,19 @@
                 method: 'GET',
                 credentials: 'include' // 包含cookie
             });
-
             const result = await response.json();
-
             if (result.isAuthenticated) {
-                // 如果已有有效会话，根据用户名判断跳转目标
-                const username = (result.username || '').toLowerCase();
-                if (username === 'super') {
-                    window.location.href = '/dashboard.html';
-                } else {
-                    window.location.href = '/chat.html';
-                }
+                window.location.href = '/dashboard.html';
             }
         } catch (error) {
             console.error('检查会话错误:', error);
         }
     }
+
+    function gotoChat() {
+        window.location.href = '/chat.html';
+    }
+
 </script>
 </body>
 </html>
