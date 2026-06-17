@@ -2,6 +2,8 @@
 
 一个基于 **Spring Boot + Netty + WebSocket** 的实时语音/聊天服务端。
 
+
+- **页面（默认端口 8080）**：网页端控制台、聊天室
 - **TCP（默认端口 6324）**：文本消息（聊天、房间、私聊、全服广播）
 - **UDP（默认端口 6324）**：语音流转发（原始音频数据）
 - **WebSocket `/ws/chat`**：浏览器客户端聊天通道，支持房间/私聊/WebRTC 信令/管理员房间管理
@@ -50,12 +52,14 @@ java -jar target/StgdVoice-0.0.1-SNAPSHOT.jar
 
 ### 首次登录
 
-默认没有内置账户。你可以通过以下方式添加管理员（任选其一）：
+管理员账户
+用户名:super
+密码:super
 
-1. 直接用 SQLite 客户端插入一条记录到 `admin_user` 表（字段：`username`、`password`）。
+1. 用 SQLite 客户端插入一条记录到 `admin_user` 表（字段：`username`、`password`）。
 2. 调用 `POST /adminUser/insertAdminUser` 接口插入（该接口当前无鉴权，生产环境请务必关闭）。
 
-> `super` 是特殊用户名，拥有「添加/删除/修改房间」的权限（见 `RoomController` 与 `ChatEndpoint` 中的权限校验逻辑）。建议创建一个名为 `super` 的管理员账号。
+> `super` 是特殊用户名，拥有「添加/删除/修改房间」的权限（见 `RoomController` 与 `ChatEndpoint` 中的权限校验逻辑）。
 
 ---
 
