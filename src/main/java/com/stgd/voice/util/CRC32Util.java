@@ -1,4 +1,4 @@
-package com.stgd.voice.Util;
+package com.stgd.voice.util;
 
 import java.util.zip.CRC32;
 

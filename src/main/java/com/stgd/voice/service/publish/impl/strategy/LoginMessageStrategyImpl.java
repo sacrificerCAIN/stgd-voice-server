@@ -1,6 +1,6 @@
 package com.stgd.voice.service.publish.impl.strategy;
 
-import com.alibaba.fastjson.JSON;
+import com.stgd.voice.util.JsonUtil;
 import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.User;
 import com.stgd.voice.server.component.ConnectManager;
@@ -29,7 +29,7 @@ public class LoginMessageStrategyImpl implements MessagePublishStrategy {
 		}
 		user.setName(message.getUserName());
 		connectManager.addUser(user);
-		connectManager.publishOne(ctx, JSON.toJSONString(user) + "\n");
+		connectManager.publishOne(ctx, JsonUtil.toJson(user) + "\n");
 		logPublisher.publish("login", user.getName(), null,
 				user.getName() + " 登录系统");
 	}

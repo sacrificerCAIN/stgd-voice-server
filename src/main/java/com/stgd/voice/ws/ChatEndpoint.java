@@ -1,9 +1,8 @@
 package com.stgd.voice.ws;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
-import com.stgd.voice.Util.SessionUtil;
+import com.stgd.voice.util.JsonUtil;
+import com.stgd.voice.util.SessionUtil;
 import com.stgd.voice.config.HttpSessionConfigurator;
 import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.Room;
@@ -14,6 +13,8 @@ import org.springframework.stereotype.Component;
 
 import javax.websocket.*;
 import javax.websocket.server.ServerEndpoint;
+
+import java.util.Map;
 
 @Component
 @ServerEndpoint(value = "/ws/chat", configurator = HttpSessionConfigurator.class)
@@ -80,7 +81,7 @@ public class ChatEndpoint {
     @OnMessage
     public void onMessage(Session session, String text) {
         try {
-            Message message = JSON.parseObject(text, Message.class);
+            Message message = JsonUtil.parse(text, Message.class);
             if (message == null || message.getType() == null) {
                 sendSystem(session, "消息格式错误");
                 return;
@@ -121,7 +122,7 @@ public class ChatEndpoint {
         // 用 userName（用户自定义的昵称）注册到 wsUserMap
         // 登录的真实用户名已在 onOpen 时通过 URL query 保存到 wsLoginUserMap（用于权限校验）
         String actualName = connectManager.registerWsUser(SessionUtil.getHttpSessionId(session), userName);
-        JSONObject resp = new JSONObject();
+        Map<String, Object> resp = JsonUtil.newMap();
         resp.put("type", "login");
         resp.put("userId", SessionUtil.getHttpSessionId(session));
         resp.put("userName", actualName);
@@ -129,7 +130,7 @@ public class ChatEndpoint {
     }
 
     private void handleIdle(Session session, Message message) {
-        JSONObject resp = new JSONObject();
+        Map<String, Object> resp = JsonUtil.newMap();
         resp.put("type", "idle");
         resp.put("timestamp", System.currentTimeMillis());
         sendJson(session, resp);
@@ -167,7 +168,7 @@ public class ChatEndpoint {
             }
         }
         connectManager.joinWsRoom(SessionUtil.getHttpSessionId(session), targetRoomId);
-        JSONObject resp = new JSONObject();
+        Map<String, Object> resp = JsonUtil.newMap();
         resp.put("type", "join");
         resp.put("roomId", targetRoomId);
         resp.put("roomName", room.getName());
@@ -222,14 +223,14 @@ public class ChatEndpoint {
         String payload = message.getPayload();
         if (payload == null) payload = "";
         // 构造转发消息，附带 fromUserId 方便接收方过滤
-        JSONObject forward = new JSONObject();
+        Map<String, Object> forward = JsonUtil.newMap();
         forward.put("type", "webrtc");
         forward.put("roomId", roomId);
         forward.put("fromUserId", httpSessionId);
         forward.put("fromUserName", userName);
         forward.put("targetUserId", targetUserId);
         forward.put("payload", payload);
-        String forwardStr = forward.toJSONString();
+        String forwardStr = JsonUtil.toJson(forward);
         connectManager.publishRoomWebRtcWs(roomId, httpSessionId, targetUserId, forwardStr);
     }
 
@@ -265,12 +266,12 @@ public class ChatEndpoint {
         }
         String payload = message.getPayload();
         if (payload == null) payload = "";
-        JSONObject msg = new JSONObject();
+        Map<String, Object> msg = JsonUtil.newMap();
         msg.put("type", "broadcast");
         msg.put("userName", userName);
         msg.put("payload", payload);
         msg.put("timestamp", System.currentTimeMillis());
-        String text = msg.toJSONString();
+        String text = JsonUtil.toJson(msg);
         // 通过 ConnectManager 的统一入口发送，保证每个 Session 的消息永远串行发送
         for (Session s : session.getOpenSessions()) {
             if (s != null) {
@@ -447,16 +448,16 @@ public class ChatEndpoint {
 
     private void sendSystem(Session session, String text) {
         if (session == null) return;
-        JSONObject msg = new JSONObject();
+        Map<String, Object> msg = JsonUtil.newMap();
         msg.put("type", "system");
         msg.put("payload", text);
         // 通过 ConnectManager 的统一入口发送，保证每个 Session 的消息永远串行发送
-        ConnectManager.sendToWs(session, msg.toJSONString());
+        ConnectManager.sendToWs(session, JsonUtil.toJson(msg));
     }
 
-    private void sendJson(Session session, JSONObject json) {
+    private void sendJson(Session session, Map<String, Object> json) {
         if (session == null || json == null) return;
         // 通过 ConnectManager 的统一入口发送，保证每个 Session 的消息永远串行发送
-        ConnectManager.sendToWs(session, json.toJSONString());
+        ConnectManager.sendToWs(session, JsonUtil.toJson(json));
     }
 }

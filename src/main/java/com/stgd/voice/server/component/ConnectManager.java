@@ -1,11 +1,11 @@
 package com.stgd.voice.server.component;
 
-import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
-import com.stgd.voice.Util.SessionUtil;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.entity.User;
 import com.stgd.voice.mapper.RoomMapper;
+import com.stgd.voice.util.JsonUtil;
+import com.stgd.voice.util.SessionUtil;
 import com.stgd.voice.ws.SystemLogPublisher;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -18,17 +18,10 @@ import org.springframework.stereotype.Component;
 import javax.annotation.Resource;
 import javax.websocket.Session;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author Hzzz
@@ -157,10 +150,10 @@ public class ConnectManager {
 			// WebSocket 推送：异步 + 线程池
 			final String roomName = room.getName();
 			BROADCAST_EXECUTOR.submit(() -> {
-				JSONObject msg = new JSONObject();
+				Map<String, Object> msg = JsonUtil.newMap();
 				msg.put("type", "system");
 				msg.put("payload", "管理员解散了[" + roomName + "]");
-				String wsText = msg.toJSONString();
+				String wsText = JsonUtil.toJson(msg);
 				for (String idStr : userIds) {
 					Session session = wsSessionMap.get(idStr);
 					if (session != null && session.isOpen()) {
@@ -477,14 +470,14 @@ public class ConnectManager {
 		Room room = roomMap.get(roomId);
 		if (room == null) return;
 
-		JSONObject wsJson = new JSONObject();
+		Map<String, Object> wsJson = JsonUtil.newMap();
 		wsJson.put("type", "room");
 		wsJson.put("roomId", roomId);
 		wsJson.put("sessionId", sessionId);
 		wsJson.put("userName", userName);
 		wsJson.put("payload", payload);
 		wsJson.put("timestamp", System.currentTimeMillis());
-		String wsText = wsJson.toJSONString();
+		String wsText = JsonUtil.toJson(wsJson);
 
 		// 通过统一的 sendToWs 推送，保证每个 Session 串行发送，不会阻塞调用线程也不会并发冲突
 		for (String idStr : room.getUserChannelIdSet()) {
@@ -500,11 +493,11 @@ public class ConnectManager {
 		Room room = roomMap.get(roomId);
 		if (room == null) return;
 
-		JSONObject wsJson = new JSONObject();
+		Map<String, Object> wsJson = JsonUtil.newMap();
 		wsJson.put("type", "system");
 		wsJson.put("payload", text);
 		wsJson.put("timestamp", System.currentTimeMillis());
-		String wsText = wsJson.toJSONString();
+		String wsText = JsonUtil.toJson(wsJson);
 
 		for (String idStr : room.getUserChannelIdSet()) {
 			Session session = wsSessionMap.get(idStr);
@@ -552,12 +545,12 @@ public class ConnectManager {
 	 */
 	public void broadcastAllRoomUsers() {
 		if (wsSessionMap.isEmpty()) return;
-		JSONObject root = new JSONObject();
+		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomUsers");
-		List<JSONObject> roomArr = new java.util.ArrayList<>();
+		List<Map<String, Object>> roomArr = new java.util.ArrayList<>();
 		for (Room room : roomMap.values()) {
 			if (room == null) continue;
-			JSONObject rj = new JSONObject();
+			Map<String, Object> rj = JsonUtil.newMap();
 			rj.put("id", room.getId());
 			rj.put("name", room.getName());
 			if (StringUtils.isNotBlank(room.getPassword())){
@@ -567,13 +560,13 @@ public class ConnectManager {
 			}
 
 			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
-			List<JSONObject> userArr = new java.util.ArrayList<>();
+			List<Map<String, Object>> userArr = new java.util.ArrayList<>();
 			Set<String> ids = room.getUserChannelIdSet();
 			if (ids != null) {
 				for (String idStr : ids) {
 					String un = wsUserMap.get(idStr);
 					if (un == null) continue;
-					JSONObject uj = new JSONObject();
+					Map<String, Object> uj = JsonUtil.newMap();
 					uj.put("userId", idStr);
 					uj.put("userName", un);
 					userArr.add(uj);
@@ -583,7 +576,7 @@ public class ConnectManager {
 			roomArr.add(rj);
 		}
 		root.put("rooms", roomArr);
-		String text = root.toJSONString();
+		String text = JsonUtil.toJson(root);
 		for (Session s : wsSessionMap.values()) {
 			if (s != null) {
 				sendToWs(s, text);
@@ -594,12 +587,12 @@ public class ConnectManager {
 	/** 向所有已登录 WebSocket 客户端广播：某用户加入了某房间 */
 	private void broadcastUserJoined(Integer roomId, String userId, String userName) {
 		if (roomId == null || userId == null) return;
-		JSONObject msg = new JSONObject();
+		Map<String, Object> msg = JsonUtil.newMap();
 		msg.put("type", "userJoined");
 		msg.put("roomId", roomId);
 		msg.put("userId", userId);
 		msg.put("userName", userName);
-		String text = msg.toJSONString();
+		String text = JsonUtil.toJson(msg);
 		for (Session s : wsSessionMap.values()) {
 			if (s != null) {
 				sendToWs(s, text);
@@ -610,12 +603,12 @@ public class ConnectManager {
 	/** 向所有已登录 WebSocket 客户端广播：某用户离开了某房间 */
 	private void broadcastUserLeft(Integer roomId, String userId, String userName) {
 		if (roomId == null || userId == null) return;
-		JSONObject msg = new JSONObject();
+		Map<String, Object> msg = JsonUtil.newMap();
 		msg.put("type", "userLeft");
 		msg.put("roomId", roomId);
 		msg.put("userId", userId);
 		msg.put("userName", userName);
-		String text = msg.toJSONString();
+		String text = JsonUtil.toJson(msg);
 		for (Session s : wsSessionMap.values()) {
 			if (s != null) {
 				sendToWs(s, text);
@@ -645,14 +638,14 @@ public class ConnectManager {
 
 		Session targetSession = wsSessionMap.get(targetId);
 		if (targetSession != null) {
-			JSONObject json = new JSONObject();
+			Map<String, Object> json = JsonUtil.newMap();
 			json.put("type", "private");
 			json.put("fromUserName", sourceName == null ? "未知" : sourceName);
 			json.put("fromUserId", sourceSessionId);
 			json.put("payload", payload);
 			json.put("timestamp", System.currentTimeMillis());
 			// 通过统一入口发送，保证每个 Session 串行发送
-			sendToWs(targetSession, json.toJSONString());
+			sendToWs(targetSession, JsonUtil.toJson(json));
 			return;
 		}
 
@@ -673,12 +666,12 @@ public class ConnectManager {
 	 */
 	public void broadcastRoomList() {
 		if (wsSessionMap.isEmpty()) return;
-		JSONObject root = new JSONObject();
+		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomList");
-		List<JSONObject> roomArr = new java.util.ArrayList<>();
+		List<Map<String, Object>> roomArr = new java.util.ArrayList<>();
 		for (Room room : roomMap.values()) {
 			if (room == null) continue;
-			JSONObject rj = new JSONObject();
+			Map<String, Object> rj = JsonUtil.newMap();
 			rj.put("id", room.getId());
 			rj.put("name", room.getName());
 			if (StringUtils.isNotBlank(room.getPassword())){
@@ -690,7 +683,7 @@ public class ConnectManager {
 			roomArr.add(rj);
 		}
 		root.put("rooms", roomArr);
-		final String text = root.toJSONString();
+		final String text = JsonUtil.toJson(root);
 		// 提交到异步线程池，使用 getAsyncRemote() 非阻塞发送
 		BROADCAST_EXECUTOR.submit(() -> {
 			for (Session s : wsSessionMap.values()) {

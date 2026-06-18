@@ -1,7 +1,7 @@
 package com.stgd.voice.server.handler.text;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.stgd.voice.util.JsonUtil;
 import com.stgd.voice.entity.Message;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.service.publish.impl.strategy.factory.MessageStrategyFactory;
@@ -56,9 +56,9 @@ public class TextHandler extends SimpleChannelInboundHandler<String> {
 	protected void channelRead0(ChannelHandlerContext ctx, String messageString){
 		ChannelId channelId = ctx.channel().id();
 		try {
-			Message message = JSON.parseObject(messageString, Message.class);
+			Message message = JsonUtil.parse(messageString, Message.class);
 			messageStrategyFactory.getStrategyByMessage(message.getType()).handleMessage(ctx, message);
-		}catch (JSONException jsonException){
+		} catch (JsonProcessingException jsonException) {
 			connectManager.publishOne(channelId.asLongText(), "你在说啥我听不懂\n");
 		}
 		catch (Exception e){

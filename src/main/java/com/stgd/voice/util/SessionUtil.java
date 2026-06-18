@@ -1,4 +1,4 @@
-package com.stgd.voice.Util;
+package com.stgd.voice.util;
 
 import javax.servlet.http.HttpSession;
 import javax.websocket.Session;

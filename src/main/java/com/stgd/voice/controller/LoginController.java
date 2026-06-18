@@ -1,7 +1,6 @@
 package com.stgd.voice.controller;
 
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
-import com.stgd.voice.Util.SessionUtil;
 import com.stgd.voice.entity.AdminUser;
 import com.stgd.voice.mapper.AdminUserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
