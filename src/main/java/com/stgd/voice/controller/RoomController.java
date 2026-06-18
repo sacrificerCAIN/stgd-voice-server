@@ -120,4 +120,70 @@ public class RoomController {
 	public List<Room> getAllRoom() {
         return connectManager.getAllRoom();
 	}
+
+	/**
+	 * 获取指定房间内的在线用户列表（dashboard 下拉使用）。
+	 * 入参 JSON: { "id": 房间ID }
+	 * 返回: { success, list: [{ userId, userName, ip, firstSeenTs }] }
+	 */
+	@PostMapping("getRoomOnlineUsers")
+	@ResponseBody
+	public Map<String, Object> getRoomOnlineUsers(@RequestBody(required = false) Room room,
+											  HttpServletRequest request) {
+		Map<String, Object> response = new HashMap<>();
+		HttpSession session = request.getSession(false);
+		if (isNotAdmin(session)) {
+			response.put("success", false);
+			response.put("message", "未登录，禁止操作");
+			return response;
+		}
+		if (room == null || room.getId() == null) {
+			response.put("success", false);
+			response.put("message", "房间ID不能为空");
+			response.put("list", new java.util.ArrayList<>());
+			return response;
+		}
+		response.put("success", true);
+		response.put("list", connectManager.getRoomOnlineUsers(room.getId()));
+		return response;
+	}
+
+	/**
+	 * 管理员：强制指定用户下线。
+	 * 入参 JSON: { "userId": wsId }
+	 * 返回: { success, message }
+	 */
+	@PostMapping("kickUser")
+	@ResponseBody
+	public Map<String, Object> kickUser(@RequestBody(required = false) Map<String, Object> payload,
+										 HttpServletRequest request) {
+		Map<String, Object> response = new HashMap<>();
+		HttpSession session = request.getSession(false);
+		if (isNotAdmin(session)) {
+			response.put("success", false);
+			response.put("message", "未登录，禁止操作");
+			return response;
+		}
+		if (payload == null) {
+			response.put("success", false);
+			response.put("message", "参数不能为空");
+			return response;
+		}
+		Object userIdObj = payload.get("userId");
+		if (userIdObj == null || !(userIdObj instanceof String)) {
+			response.put("success", false);
+			response.put("message", "userId 参数非法");
+			return response;
+		}
+		String wsId = (String) userIdObj;
+		if (wsId.isEmpty()) {
+			response.put("success", false);
+			response.put("message", "userId 不能为空");
+			return response;
+		}
+		boolean ok = connectManager.kickWsUser(wsId);
+		response.put("success", ok);
+		response.put("message", ok ? "已下线" : "用户不存在或已下线");
+		return response;
+	}
 }

@@ -31,7 +31,7 @@ public class ConnectManager {
 	/**
 	 * 专用线程池：负责所有房间消息/广播的异步推送。
 	 * 不阻塞业务线程，避免一条消息推送给 N 个用户时整个系统卡住。
-	 *
+	 * <p>
 	 * 关键配置：
 	 *   - 有界队列：最大 10000 个待推送任务，超过后触发拒绝策略（防止 OOM）
 	 *   - CallerRunsPolicy：队列满时由提交线程自己执行（自然反压，不丢消息）
@@ -73,6 +73,9 @@ public class ConnectManager {
 	private static final ConcurrentHashMap<String, String> wsUserMap = new ConcurrentHashMap<>();
 	// wsId -> 当前房间ID（用于离开时清理）
 	private static final ConcurrentHashMap<String, Integer> wsRoomMap = new ConcurrentHashMap<>();
+	// wsId -> 首次登录时间戳（毫秒），用于展示在线时长
+	private static final ConcurrentHashMap<String, Long> wsFirstSeenMap = new ConcurrentHashMap<>();
+
 
 	// ============ WebSocket 消息推送队列（保证每个 Channel 串行发送，避免并发写入） ============
 	// wsId -> 待发送消息队列（每个 Channel 独立一条队列）
@@ -255,6 +258,24 @@ public class ConnectManager {
 		if (wsId == null || wsChannel == null) return;
 		wsChannelMap.put(wsId, wsChannel);
 		channelToWsId.put(wsChannel, wsId);
+		if (!wsFirstSeenMap.containsKey(wsId)) {
+			wsFirstSeenMap.put(wsId, System.currentTimeMillis());
+		}
+	}
+
+	/** 尝试从 Netty Channel 获取远程客户端的 IP（IPv4/IPv6） */
+	public static String getWsIp(Channel channel) {
+		if (channel == null) return "";
+		try {
+			java.net.SocketAddress sa = channel.remoteAddress();
+			if (sa instanceof java.net.InetSocketAddress) {
+				java.net.InetAddress ia = ((java.net.InetSocketAddress) sa).getAddress();
+				if (ia != null) return ia.getHostAddress();
+			}
+			return String.valueOf(sa);
+		} catch (Exception e) {
+			return "";
+		}
 	}
 
 	/** 移除一个 WebSocket 连接（连接关闭时调用，自动退出所在房间、清除用户信息） */
@@ -264,6 +285,7 @@ public class ConnectManager {
 		if (oldCh != null) {
 			channelToWsId.remove(oldCh);
 		}
+		wsFirstSeenMap.remove(wsId);
 		String userName = wsUserMap.remove(wsId);
 		Integer roomId = wsRoomMap.remove(wsId);
 		if (roomId != null) {
@@ -675,6 +697,61 @@ public class ConnectManager {
 	/** 获取所有在线的 WebSocket Channel（供系统日志 / dashboard 推送使用） */
 	public Collection<Channel> getAllWsChannels() {
 		return wsChannelMap.values();
+	}
+
+	/**
+	 * 获取指定房间的在线用户列表（dashboard 使用）。
+	 * 返回结构：
+	 *   [{ userId, userName, ip, firstSeenTs }, ...]
+	 */
+	public List<Map<String, Object>> getRoomOnlineUsers(Integer roomId) {
+		List<Map<String, Object>> result = new ArrayList<>();
+		if (roomId == null) return result;
+		Room room = roomMap.get(roomId);
+		if (room == null) return result;
+		Set<String> ids = room.getUserChannelIdSet();
+		if (ids == null) return result;
+		for (String idStr : ids) {
+			if (idStr == null) continue;
+			Channel ch = wsChannelMap.get(idStr);
+			if (ch == null || !ch.isActive()) continue;
+			String un = wsUserMap.get(idStr);
+			Long firstSeen = wsFirstSeenMap.get(idStr);
+			Map<String, Object> u = JsonUtil.newMap();
+			u.put("userId", idStr);
+			u.put("userName", un == null ? "(未命名)" : un);
+			u.put("ip", getWsIp(ch));
+			u.put("firstSeenTs", firstSeen == null ? System.currentTimeMillis() : firstSeen);
+			result.add(u);
+		}
+		return result;
+	}
+
+	/**
+	 * 管理员强制指定 wsId 用户下线（关闭连接）。
+	 * 返回：true = 成功找到并关闭，false = 找不到该用户
+	 */
+	public boolean kickWsUser(String wsId) {
+		if (wsId == null || !wsChannelMap.containsKey(wsId)) return false;
+		String userName = wsUserMap.get(wsId);
+		Channel ch = wsChannelMap.get(wsId);
+		// 先发送一条下线通知（可选），然后关闭连接
+		try {
+			if (ch != null && ch.isActive()) {
+				Map<String, Object> msg = JsonUtil.newMap();
+				msg.put("type", "system");
+				msg.put("payload", "管理员已将你踢下线");
+				sendToWs(ch, JsonUtil.toJson(msg));
+				ch.close();
+			}
+		} catch (Exception ignore) {}
+		removeWsChannel(wsId);
+		if (logPublisher != null) {
+			logPublisher.publish("logout", userName,
+				null, (userName == null ? "某用户" : userName) + " 被管理员强制下线");
+		}
+		broadcastAllRoomUsers();
+		return true;
 	}
 
 	/**
