@@ -214,7 +214,9 @@ public class ConnectManager {
 			channel = channelGroup.find(channelId);
 		}catch (NullPointerException e){
 			Channel sourceChannel = getChannelByChannelId(sourceChannelIdString);
-			sourceChannel.writeAndFlush("[服务器]对你说：该用户已下线\n");
+			if (sourceChannel != null){
+				sourceChannel.writeAndFlush("[服务器]对你说：该用户已下线\n");
+			}
 			return;
 		}
 
@@ -226,7 +228,9 @@ public class ConnectManager {
 			sourceUserName =  sourceUser.getName();
 		}
 
-		channel.writeAndFlush("[" + sourceUserName + "]对你说：" + s + "\n");
+		if (channel != null){
+			channel.writeAndFlush("[" + sourceUserName + "]对你说：" + s + "\n");
+		}
 	}
 
 	public void publishAll(String s){
@@ -503,9 +507,9 @@ public class ConnectManager {
 			// 先尝试作为 Netty channelId 推送
 			ChannelId channelId = channelWithStringIdMap.get(idStr);
 			if (channelId != null) {
-				Channel ch = channelGroup.find(channelId);
-				if (ch != null && ch.isActive()) {
-					ch.writeAndFlush(nettyText);
+				Channel channel = channelGroup.find(channelId);
+				if (channel != null && channel.isActive()) {
+					channel.writeAndFlush(nettyText);
                 }
 			}
 		}

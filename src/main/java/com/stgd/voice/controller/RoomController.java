@@ -1,5 +1,6 @@
 package com.stgd.voice.controller;
 
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.server.component.ConnectManager;
@@ -32,9 +33,9 @@ public class RoomController {
 	 * 校验是否为已登录用户。只有登录用户（特别是 super 管理员）可进行房间增删改操作。
 	 */
 	private boolean isAdmin(HttpSession session) {
-		if (session == null) return true;
+		if (session == null) return false;
 		String username = (String) session.getAttribute("username");
-		return username == null || username.trim().isEmpty();
+		return StringUtils.isNotBlank(username);
 	}
 
 	@PostMapping("insertRoom")
@@ -42,7 +43,7 @@ public class RoomController {
 	public Map<String, Object> insertRoom(@RequestBody Room room, HttpServletRequest request) {
 		Map<String, Object> response = new HashMap<>();
 		HttpSession session = request.getSession(false);
-		if (isAdmin(session)) {
+		if (!isAdmin(session)) {
 			response.put("success", false);
 			response.put("message", "未登录，禁止操作");
 			return response;

@@ -179,7 +179,6 @@ public class NettyMain {
 			Thread.currentThread().interrupt();
 		} catch (Exception e) {
 			System.err.println("服务启动异常：" + e.getMessage());
-			e.printStackTrace();
 		} finally {
 			bossGroup.shutdownGracefully();
 			tcpGroup.shutdownGracefully();
