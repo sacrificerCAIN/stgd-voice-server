@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.Resource;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -23,7 +24,7 @@ public class MessageStrategyFactory {
 		STRATEGY_MAP.put(7, "LogoutMessageStrategy");
 	}
 
-	@Autowired
+	@Resource
 	private ApplicationContext applicationContext;
 
 	public MessagePublishStrategy getStrategyByMessage(Integer messageType) {

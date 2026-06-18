@@ -7,12 +7,13 @@ import org.springframework.boot.context.event.ApplicationFailedEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.Resource;
 import java.net.BindException;
 
 @Component
 public class PortCheckListener implements ApplicationListener<ApplicationFailedEvent> {
 
-	@Autowired
+	@Resource
 	private ServerConfig serverConfig;
 
 	@SneakyThrows

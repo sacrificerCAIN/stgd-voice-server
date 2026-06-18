@@ -5,6 +5,7 @@ server:
   tcp-port: 6324
   ws-port: 8003
   udp-port: 6324
+  idle-timeout-seconds: 60  # TCP/WebSocket 读空闲超时（秒），超过未收到数据则关闭连接，0 或负为不启用
   servlet:
     session:
       timeout: 259200

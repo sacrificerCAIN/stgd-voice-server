@@ -9,12 +9,13 @@ import io.netty.channel.ChannelId;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.Resource;
 import java.util.Set;
 
 @Service("RoomMessageStrategy")
 public class RoomMessageStrategyImpl implements MessagePublishStrategy {
 
-	@Autowired
+	@Resource
 	private ConnectManager connectManager;
 
 	@Override

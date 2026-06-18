@@ -3,6 +3,7 @@ package com.stgd.voice.server;
 
 import com.stgd.voice.config.ServerConfig;
 import com.stgd.voice.server.component.ConnectManager;
+import com.stgd.voice.server.handler.system.IdleEventHandler;
 import com.stgd.voice.server.handler.text.TextHandler;
 import com.stgd.voice.server.handler.voice.VoiceHandler;
 import com.stgd.voice.server.handler.ws.ChatWsHandler;
@@ -25,25 +26,36 @@ import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.CharsetUtil;
+
+import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.Resource;
 import java.net.BindException;
 
 @Component
 public class NettyMain {
-	@Autowired
+	@Resource
 	private ConnectManager connectManager;
-	@Autowired
+	@Resource
 	private MessageStrategyFactory messageStrategyFactory;
-	@Autowired
+	@Resource
 	private ServerConfig serverConfig;
-	@Autowired
+	@Resource
 	private RoomMapper roomMapper;
-	@Autowired
+	@Resource
 	private SystemLogPublisher logPublisher;
 
+	private static int getIdleTimeoutSeconds(ServerConfig serverConfig) {
+		Integer v = serverConfig == null ? null : serverConfig.getIdleTimeoutSeconds();
+		return (v == null || v <= 0) ? 0 : v;
+	}
+	
 	public void start() {
 		EventLoopGroup bossGroup = new NioEventLoopGroup(1);
 		EventLoopGroup tcpGroup = new NioEventLoopGroup();
@@ -58,6 +70,12 @@ public class NettyMain {
 					.childHandler(new ChannelInitializer<SocketChannel>() {
 						@Override
 						public void initChannel(SocketChannel ch) {
+							// 读空闲超时：在规定时间内没有收到客户端数据，则由 IdleStateHandler 派发 IdleStateEvent
+							int idleSecs = getIdleTimeoutSeconds(serverConfig);
+							if (idleSecs > 0) {
+								ch.pipeline().addLast("idleState", new IdleStateHandler(idleSecs, 0, 0, TimeUnit.SECONDS));
+								ch.pipeline().addLast("idleHandler", new IdleEventHandler("TCP"));
+							}
 							ch.pipeline().addLast(new StringDecoder(CharsetUtil.UTF_8));
 							ch.pipeline().addLast(new StringEncoder(CharsetUtil.UTF_8));
 							ch.pipeline().addLast(new TextHandler(connectManager, messageStrategyFactory));
@@ -88,6 +106,12 @@ public class NettyMain {
 						.childHandler(new ChannelInitializer<SocketChannel>() {
 						@Override
 						public void initChannel(SocketChannel ch) {
+							// 读空闲超时：在规定时间内没有收到客户端数据，则由 IdleStateHandler 派发 IdleStateEvent
+							int idleSecs = getIdleTimeoutSeconds(serverConfig);
+							if (idleSecs > 0) {
+								ch.pipeline().addLast("idleState", new IdleStateHandler(idleSecs, 0, 0, TimeUnit.SECONDS));
+								ch.pipeline().addLast("idleHandler", new IdleEventHandler("WS"));
+							}
 							ch.pipeline().addLast(new HttpServerCodec());
 							ch.pipeline().addLast(new HttpObjectAggregator(65536));
 							// 1. 在协议升级之前先从 HTTP 请求中解析 query（wsId、loginUser），保存到 channel 属性中

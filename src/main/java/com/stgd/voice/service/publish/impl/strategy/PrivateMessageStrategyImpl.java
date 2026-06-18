@@ -8,10 +8,12 @@ import io.netty.channel.ChannelId;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.Resource;
+
 @Service("PrivateMessageStrategy")
 public class PrivateMessageStrategyImpl implements MessagePublishStrategy {
 
-	@Autowired
+	@Resource
 	private ConnectManager connectManager;
 
 	@Override

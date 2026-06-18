@@ -7,10 +7,12 @@ import io.netty.channel.ChannelHandlerContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.Resource;
+
 @Service("ToAllMessageStrategy")
 public class ToAllMessageStrategyImpl implements MessagePublishStrategy {
 
-	@Autowired
+	@Resource
 	private ConnectManager connectManager;
 
 	@Override
