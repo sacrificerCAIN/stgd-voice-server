@@ -5,19 +5,17 @@ import com.stgd.voice.entity.Room;
 import com.stgd.voice.entity.User;
 import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.util.JsonUtil;
-import com.stgd.voice.util.SessionUtil;
 import com.stgd.voice.ws.SystemLogPublisher;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelId;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
+import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
-import javax.websocket.Session;
-import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -55,20 +53,20 @@ public class ConnectManager {
 
 	private static final ConcurrentHashMap<String, User> userMap = new ConcurrentHashMap<>();
 
-	// ============ WebSocket 浏览器客户端 ============
-	// sessionId -> javax.websocket.Session
-	private static final ConcurrentHashMap<String, Session> wsSessionMap = new ConcurrentHashMap<>();
-	// sessionId -> 昵称（用户在前端自定义设置）
+	// ============ WebSocket 浏览器客户端（使用 Netty WebSocket 实现，替换原来的 javax.websocket） ============
+	// wsId -> Netty Channel（wsId 即为原来的 httpSessionId，由前端传入或后端生成唯一ID）
+	private static final ConcurrentHashMap<String, Channel> wsChannelMap = new ConcurrentHashMap<>();
+	// wsId -> 昵称（用户在前端自定义设置）
 	private static final ConcurrentHashMap<String, String> wsUserMap = new ConcurrentHashMap<>();
-	// sessionId -> HTTP Session 登录的真实用户名（用于权限校验，不可伪造）
+	// wsId -> HTTP 登录的真实用户名（用于权限校验，不可伪造，来自 URL query ?loginUser=xxx）
 	private static final ConcurrentHashMap<String, String> wsLoginUserMap = new ConcurrentHashMap<>();
-	// sessionId -> 当前房间ID（用于离开时清理）
+	// wsId -> 当前房间ID（用于离开时清理）
 	private static final ConcurrentHashMap<String, Integer> wsRoomMap = new ConcurrentHashMap<>();
 
-	// ============ WebSocket 消息推送队列（保证每个 Session 串行发送，避免 TEXT_FULL_WRITING） ============
-	// sessionId -> 待发送消息队列（每个 Session 独立一条队列）
+	// ============ WebSocket 消息推送队列（保证每个 Channel 串行发送，避免并发写入） ============
+	// wsId -> 待发送消息队列（每个 Channel 独立一条队列）
 	private static final ConcurrentHashMap<String, LinkedBlockingQueue<String>> wsMessageQueues = new ConcurrentHashMap<>();
-	// sessionId -> 写标志（true = 已有写线程正在消费队列，false = 需要启动新的写线程）
+	// wsId -> 写标志（true = 已有写线程正在消费队列，false = 需要启动新的写线程）
 	private static final ConcurrentHashMap<String, AtomicBoolean> wsWritingFlags = new ConcurrentHashMap<>();
 
 	// ============ 房间管理 ============
@@ -132,12 +130,12 @@ public class ConnectManager {
 		broadcastRoomList();
 	}
 
-	public void removeRoom(Integer id){
+	public void removeRoom(Integer id) {
 		Room room = roomMap.get(id);
 		if (room == null) return;
 		Set<String> userIds = room.getUserChannelIdSet();
 		if (userIds != null) {
-			// Netty 推送（本身是异步的）
+			// Netty TCP 客户端推送
 			for (String idStr : userIds) {
 				ChannelId channelId = channelWithStringIdMap.get(idStr);
 				if (channelId != null) {
@@ -147,7 +145,7 @@ public class ConnectManager {
 					}
 				}
 			}
-			// WebSocket 推送：异步 + 线程池
+			// Netty WebSocket 推送：异步 + 线程池
 			final String roomName = room.getName();
 			BROADCAST_EXECUTOR.submit(() -> {
 				Map<String, Object> msg = JsonUtil.newMap();
@@ -155,9 +153,9 @@ public class ConnectManager {
 				msg.put("payload", "管理员解散了[" + roomName + "]");
 				String wsText = JsonUtil.toJson(msg);
 				for (String idStr : userIds) {
-					Session session = wsSessionMap.get(idStr);
-					if (session != null && session.isOpen()) {
-						session.getAsyncRemote().sendText(wsText);
+					Channel wsCh = wsChannelMap.get(idStr);
+					if (wsCh != null && wsCh.isActive()) {
+						wsCh.writeAndFlush(new TextWebSocketFrame(wsText));
 					}
 				}
 			});
@@ -233,32 +231,32 @@ public class ConnectManager {
 				.forEach(ch -> ch.writeAndFlush(s + "\n"));
 	}
 
-	// ==================== WebSocket 客户端支持 ====================
+	// ==================== WebSocket 客户端支持（Netty WebSocket） ====================
 
-	/** 注册一个 WebSocket 会话（连接建立时调用） */
-	public void addWsSession(Session session) {
-		if (session == null) return;
-		wsSessionMap.put(SessionUtil.getHttpSessionId(session), session);
+	/** 注册一个 WebSocket 连接（连接建立时调用） */
+	public void addWsChannel(String wsId, Channel wsChannel) {
+		if (wsId == null || wsChannel == null) return;
+		wsChannelMap.put(wsId, wsChannel);
 	}
 
-	/** 移除一个 WebSocket 会话（连接关闭时调用，自动退出所在房间、清除用户信息） */
-	public void removeWsSession(String sessionId) {
-		if (sessionId == null) return;
-		wsSessionMap.remove(sessionId);
-		String userName = wsUserMap.remove(sessionId);
-		wsLoginUserMap.remove(sessionId);
-		Integer roomId = wsRoomMap.remove(sessionId);
+	/** 移除一个 WebSocket 连接（连接关闭时调用，自动退出所在房间、清除用户信息） */
+	public void removeWsChannel(String wsId) {
+		if (wsId == null) return;
+		wsChannelMap.remove(wsId);
+		String userName = wsUserMap.remove(wsId);
+		wsLoginUserMap.remove(wsId);
+		Integer roomId = wsRoomMap.remove(wsId);
 		if (roomId != null) {
 			Room room = roomMap.get(roomId);
 			if (room != null) {
-				room.removeUser(sessionId);
+				room.removeUser(wsId);
 				if (userName != null) {
-					publishRoomSystemWs(roomId, userName + " 离开了房间", sessionId);
+					publishRoomSystemWs(roomId, userName + " 离开了房间", wsId);
 					if (logPublisher != null) {
 						logPublisher.publish("leave", userName, room.getName(),
 							userName + " 离开房间 [" + room.getName() + "]");
 					}
-					broadcastUserLeft(roomId, sessionId, userName);
+					broadcastUserLeft(roomId, wsId, userName);
 				}
 			}
 		}
@@ -266,35 +264,48 @@ public class ConnectManager {
 		if (logPublisher != null && userName != null) {
 			logPublisher.publish("logout", userName, null, userName + " 登出系统");
 		}
-		// 清理该 Session 的消息队列与写标志
-        wsMessageQueues.remove(sessionId);
-        wsWritingFlags.remove(sessionId);
-        broadcastAllRoomUsers();
+		// 清理该 Channel 的消息队列与写标志
+		wsMessageQueues.remove(wsId);
+		wsWritingFlags.remove(wsId);
+		broadcastAllRoomUsers();
 	}
 
-	// ==================== 统一的 WebSocket 消息推送（保证每个 Session 串行发送） ====================
+	/** 查找一个已注册的 WebSocket Channel（例如在消息处理中需要写回时调用） */
+	public Channel getWsChannel(String wsId) {
+		return wsId == null ? null : wsChannelMap.get(wsId);
+	}
+
+	/** 查找指定 WebSocket Channel 对应的 wsId（供 handler 内部回查） */
+	public String getWsIdByChannel(Channel ch) {
+		if (ch == null) return null;
+		for (Map.Entry<String, Channel> e : wsChannelMap.entrySet()) {
+			if (ch.equals(e.getValue())) return e.getKey();
+		}
+		return null;
+	}
+
+	// ==================== 统一的 WebSocket 消息推送（保证每个 Channel 串行发送） ====================
 
 	/**
 	 * 统一发送 WebSocket 消息入口。
-	 * 核心保证：每个 Session 的消息永远串行发送，不会并发写入，彻底避免 TEXT_FULL_WRITING 异常。
+	 * 核心保证：每个 Channel 的消息永远串行发送，不会并发写入。
 	 * 原理：
-	 *   1. 每个 Session 有独立的消息队列 wsMessageQueues
-	 *   2. 用 wsWritingFlags 的 CAS 控制「该 Session 是否已经有写线程在消费队列」
+	 *   1. 每个 wsId 有独立的消息队列 wsMessageQueues
+	 *   2. 用 wsWritingFlags 的 CAS 控制「该 Channel 是否已经有写线程在消费队列」
 	 *   3. 只有当没有写线程在工作时，才启动一个新的写线程到 BROADCAST_EXECUTOR
 	 */
-	public static void sendToWs(Session session, String text) {
-		if (session == null || text == null) return;
-		if (!session.isOpen()) return;
+	public static void sendToWs(String wsId, String text) {
+		if (wsId == null || text == null) return;
+		Channel channel = wsChannelMap.get(wsId);
+		if (channel == null || !channel.isActive()) return;
 
-		String sessionId = SessionUtil.getHttpSessionId(session);
-
-		// 1. 获取/创建该 Session 的消息队列
+		// 1. 获取/创建该 Channel 的消息队列
 		LinkedBlockingQueue<String> queue = wsMessageQueues.computeIfAbsent(
-			sessionId, k -> new LinkedBlockingQueue<>()
+			wsId, k -> new LinkedBlockingQueue<>()
 		);
-		// 2. 获取/创建该 Session 的写标志
+		// 2. 获取/创建该 Channel 的写标志
 		AtomicBoolean writing = wsWritingFlags.computeIfAbsent(
-			sessionId, k -> new AtomicBoolean(false)
+			wsId, k -> new AtomicBoolean(false)
 		);
 
 		// 3. 把消息放入队列
@@ -302,15 +313,16 @@ public class ConnectManager {
 
 		// 4. CAS 检查：如果当前没有写线程，就启动一个新的写线程消费队列
 		if (writing.compareAndSet(false, true)) {
-			BROADCAST_EXECUTOR.submit(() -> drainWsQueue(session, queue, writing));
+			BROADCAST_EXECUTOR.submit(() -> drainWsQueue(wsId, channel, queue, writing));
 		}
 	}
 
 	/**
-	 * 写线程：循环从队列取消息，通过 getBasicRemote() 同步串行发送。
-	 * 单线程内调用 getBasicRemote() 是 100% 安全的，永远不会出现并发写入。
+	 * 写线程：循环从队列取消息，通过 writeAndFlush(TextWebSocketFrame) 发送。
+	 * 单线程内调用 writeAndFlush 串行写入，保证无并发冲突。
 	 */
-	private static void drainWsQueue(Session session, LinkedBlockingQueue<String> queue, AtomicBoolean writing) {
+	private static void drainWsQueue(String wsId, Channel channel,
+									 LinkedBlockingQueue<String> queue, AtomicBoolean writing) {
 		try {
 			while (true) {
 				String msg = queue.poll();
@@ -323,16 +335,16 @@ public class ConnectManager {
 					}
 					return;
 				}
-				if (!session.isOpen()) {
-					// 连接关闭，清空队列并返回
+				// 再次确认连接仍然活跃（调用者在处理期间可能断开）
+				if (channel == null || !channel.isActive()) {
+					// 连接已关闭，清理队列并返回
 					queue.clear();
 					writing.set(false);
 					return;
 				}
-				// 单线程内调用 getBasicRemote() —— 永远不会并发冲突
 				try {
-					session.getBasicRemote().sendText(msg);
-				} catch (IOException ignored) {
+					channel.writeAndFlush(new TextWebSocketFrame(msg)).sync();
+				} catch (Exception ignored) {
 					// 发送失败通常意味着连接已断开，退出循环
 					queue.clear();
 					writing.set(false);
@@ -345,13 +357,36 @@ public class ConnectManager {
 		}
 	}
 
+	/**
+	 * 直接向指定 Channel 发送 JSON 文本（当调用者手头只有 Channel 时使用）。
+	 * 会先反查 wsId，然后走上面的统一发送逻辑，保证串行发送。
+	 */
+	public static void sendToWs(Channel channel, String text) {
+		if (channel == null || text == null) return;
+		if (!channel.isActive()) return;
+		// 从 wsChannelMap 反查 wsId
+		String wsId = null;
+		for (Map.Entry<String, Channel> e : wsChannelMap.entrySet()) {
+			if (channel.equals(e.getValue())) {
+				wsId = e.getKey();
+				break;
+			}
+		}
+		if (wsId == null) {
+			// 极端情况：尚未在 map 中注册，那就直接发送一次
+			channel.writeAndFlush(new TextWebSocketFrame(text));
+			return;
+		}
+		sendToWs(wsId, text);
+	}
+
 	/** WebSocket 客户端设置昵称（类似 TCP 客户端 type=1 登录） */
-	public String registerWsUser(String sessionId, String userName) {
-		if (sessionId == null || userName == null || userName.trim().isEmpty()) {
+	public String registerWsUser(String wsId, String userName) {
+		if (wsId == null || userName == null || userName.trim().isEmpty()) {
 			return null;
 		}
 		String actualName = userName.trim();
-		wsUserMap.put(sessionId, actualName);
+		wsUserMap.put(wsId, actualName);
 		// 系统日志广播（dashboard 会显示）
 		if (logPublisher != null) {
 			logPublisher.publish("login", actualName, null, actualName + " 登录系统");
@@ -362,20 +397,20 @@ public class ConnectManager {
 	}
 
 	/** 获取 WebSocket 客户端的昵称 */
-	public String getWsUserName(String sessionId) {
-		return sessionId == null ? null : wsUserMap.get(sessionId);
+	public String getWsUserName(String wsId) {
+		return wsId == null ? null : wsUserMap.get(wsId);
 	}
 
-	/** 设置 WebSocket 客户端对应的 HTTP Session 登录用户名（连接建立时调用） */
-	public void setWsLoginUser(String sessionId, String loginUserName) {
-		if (sessionId == null) return;
+	/** 设置 WebSocket 客户端对应的登录用户名（连接建立时，由 URL query 的 loginUser 传入） */
+	public void setWsLoginUser(String wsId, String loginUserName) {
+		if (wsId == null) return;
 		if (loginUserName == null || loginUserName.trim().isEmpty()) return;
-		wsLoginUserMap.put(sessionId, loginUserName.trim());
+		wsLoginUserMap.put(wsId, loginUserName.trim());
 	}
 
-	/** 获取 WebSocket 客户端对应的 HTTP Session 登录用户名（用于权限校验） */
-	public String getWsLoginUser(String sessionId) {
-		return sessionId == null ? null : wsLoginUserMap.get(sessionId);
+	/** 获取 WebSocket 客户端对应的登录用户名（用于权限校验） */
+	public String getWsLoginUser(String wsId) {
+		return wsId == null ? null : wsLoginUserMap.get(wsId);
 	}
 
 	/** WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见） */
@@ -386,57 +421,62 @@ public class ConnectManager {
 	/**
 	 * WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见）
 	 */
-	public void joinWsRoom(String sessionId, Integer targetRoomId) {
-		if (sessionId == null || targetRoomId == null) return;
-		if (!wsUserMap.containsKey(sessionId)) return;
+	public void joinWsRoom(String wsId, Integer targetRoomId) {
+		if (wsId == null || targetRoomId == null) return;
+		if (!wsUserMap.containsKey(wsId)) return;
 		Room targetRoom = roomMap.get(targetRoomId);
 		if (targetRoom == null) return;
 
 		// 如果当前已在某个房间，先离开
-		Integer oldRoomId = wsRoomMap.get(sessionId);
+		Integer oldRoomId = wsRoomMap.get(wsId);
 		if (oldRoomId != null && !oldRoomId.equals(targetRoomId)) {
 			Room oldRoom = roomMap.get(oldRoomId);
 			if (oldRoom != null) {
-				oldRoom.removeUser(sessionId);
-				String userName = wsUserMap.get(sessionId);
+				oldRoom.removeUser(wsId);
+				String userName = wsUserMap.get(wsId);
 				if (userName != null) {
-					publishRoomSystemWs(oldRoomId, userName + " 离开了房间", sessionId);
+					publishRoomSystemWs(oldRoomId, userName + " 离开了房间", wsId);
 				}
 			}
 		}
 
 		// 加入新房间
-		targetRoom.addUser(sessionId);
-		wsRoomMap.put(sessionId, targetRoomId);
-		String userName = wsUserMap.get(sessionId);
+		targetRoom.addUser(wsId);
+		wsRoomMap.put(wsId, targetRoomId);
+		String userName = wsUserMap.get(wsId);
 		if (userName != null) {
-			publishRoomSystemWs(targetRoomId, userName + " 加入了房间", sessionId);
+			publishRoomSystemWs(targetRoomId, userName + " 加入了房间", wsId);
 			// 系统日志：加入房间（dashboard 会显示）
 			if (logPublisher != null) {
 				logPublisher.publish("join", userName, targetRoom.getName(),
 					userName + " 加入房间 [" + targetRoom.getName() + "]");
 			}
-			broadcastUserJoined(targetRoomId, sessionId, userName);
+			broadcastUserJoined(targetRoomId, wsId, userName);
 		}
 		broadcastAllRoomUsers();
 	}
 
 	/** WebSocket 客户端离开房间（例如手动切换） */
-	public void leaveWsRoom(String sessionId) {
-		if (sessionId == null) return;
-		Integer roomId = wsRoomMap.remove(sessionId);
+	public void leaveWsRoom(String wsId) {
+		if (wsId == null) return;
+		Integer roomId = wsRoomMap.remove(wsId);
 		if (roomId != null) {
 			Room room = roomMap.get(roomId);
 			if (room != null) {
-				room.removeUser(sessionId);
-				String userName = wsUserMap.get(sessionId);
+				room.removeUser(wsId);
+				String userName = wsUserMap.get(wsId);
 				if (userName != null) {
-					publishRoomSystemWs(roomId, userName + " 离开了房间", sessionId);
-					broadcastUserLeft(roomId, sessionId, userName);
+					publishRoomSystemWs(roomId, userName + " 离开了房间", wsId);
+					broadcastUserLeft(roomId, wsId, userName);
 				}
 			}
 		}
 		broadcastAllRoomUsers();
+	}
+
+	/** 获取指定 wsId 所在的房间 ID */
+	public Integer getWsRoomId(String wsId) {
+		return wsId == null ? null : wsRoomMap.get(wsId);
 	}
 
 	// ==================== 统一的房间消息推送（TCP + WebSocket） ====================
@@ -465,7 +505,7 @@ public class ConnectManager {
 		}
 	}
 
-	public void publishRoomMessageWs(Integer roomId, String userName, String payload, String sessionId) {
+	public void publishRoomMessageWs(Integer roomId, String userName, String payload, String wsId) {
 		if (roomId == null) return;
 		Room room = roomMap.get(roomId);
 		if (room == null) return;
@@ -473,22 +513,21 @@ public class ConnectManager {
 		Map<String, Object> wsJson = JsonUtil.newMap();
 		wsJson.put("type", "room");
 		wsJson.put("roomId", roomId);
-		wsJson.put("sessionId", sessionId);
+		wsJson.put("wsId", wsId);
 		wsJson.put("userName", userName);
 		wsJson.put("payload", payload);
 		wsJson.put("timestamp", System.currentTimeMillis());
 		String wsText = JsonUtil.toJson(wsJson);
 
-		// 通过统一的 sendToWs 推送，保证每个 Session 串行发送，不会阻塞调用线程也不会并发冲突
+		// 通过统一的 sendToWs 推送，保证每个 Channel 串行发送
 		for (String idStr : room.getUserChannelIdSet()) {
-			Session session = wsSessionMap.get(idStr);
-			if (session != null) {
-				sendToWs(session, wsText);
+			if (wsChannelMap.containsKey(idStr)) {
+				sendToWs(idStr, wsText);
 			}
 		}
 	}
 
-	public void publishRoomSystemWs(Integer roomId, String text, String sessionId) {
+	public void publishRoomSystemWs(Integer roomId, String text, String wsId) {
 		if (roomId == null || text == null) return;
 		Room room = roomMap.get(roomId);
 		if (room == null) return;
@@ -500,33 +539,29 @@ public class ConnectManager {
 		String wsText = JsonUtil.toJson(wsJson);
 
 		for (String idStr : room.getUserChannelIdSet()) {
-			Session session = wsSessionMap.get(idStr);
-			if (session != null) {
-				if (StringUtils.equals(sessionId, SessionUtil.getHttpSessionId(session))) continue;
-				sendToWs(session, wsText);
-			}
+			if (!wsChannelMap.containsKey(idStr)) continue;
+			if (StringUtils.equals(wsId, idStr)) continue;
+			sendToWs(idStr, wsText);
 		}
 	}
 
 	/**
 	 * WebRTC 信令转发：将 forwardText 发送到房间内其他成员。
-	 * 若 targetUserId 不为空，则只发送到目标用户（点对点）；否则发送到房间内除 sourceSessionId 外的所有人。
+	 * 若 targetUserId 不为空，则只发送到目标用户（点对点）；否则发送到房间内除 sourceWsId 外的所有人。
 	 */
-	public void publishRoomWebRtcWs(Integer roomId, String sourceSessionId, String targetUserId, String forwardText) {
+	public void publishRoomWebRtcWs(Integer roomId, String sourceWsId, String targetUserId, String forwardText) {
 		if (roomId == null || forwardText == null) return;
 		Room room = roomMap.get(roomId);
 		if (room == null) return;
-		if (sourceSessionId == null) return;
+		if (sourceWsId == null) return;
 
 		boolean hasTarget = targetUserId != null && !targetUserId.trim().isEmpty();
 
 		for (String idStr : room.getUserChannelIdSet()) {
-			if (StringUtils.equals(idStr, sourceSessionId)) continue;
+			if (!wsChannelMap.containsKey(idStr)) continue;
+			if (StringUtils.equals(idStr, sourceWsId)) continue;
 			if (hasTarget && !StringUtils.equals(idStr, targetUserId)) continue;
-			Session session = wsSessionMap.get(idStr);
-			if (session != null) {
-				sendToWs(session, forwardText);
-			}
+			sendToWs(idStr, forwardText);
 		}
 	}
 
@@ -544,7 +579,7 @@ public class ConnectManager {
 	 *   }
 	 */
 	public void broadcastAllRoomUsers() {
-		if (wsSessionMap.isEmpty()) return;
+		if (wsChannelMap.isEmpty()) return;
 		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomUsers");
 		List<Map<String, Object>> roomArr = new java.util.ArrayList<>();
@@ -553,9 +588,9 @@ public class ConnectManager {
 			Map<String, Object> rj = JsonUtil.newMap();
 			rj.put("id", room.getId());
 			rj.put("name", room.getName());
-			if (StringUtils.isNotBlank(room.getPassword())){
+			if (StringUtils.isNotBlank(room.getPassword())) {
 				rj.put("hasPassword", "1");
-			}else{
+			} else {
 				rj.put("hasPassword", "0");
 			}
 
@@ -577,10 +612,8 @@ public class ConnectManager {
 		}
 		root.put("rooms", roomArr);
 		String text = JsonUtil.toJson(root);
-		for (Session s : wsSessionMap.values()) {
-			if (s != null) {
-				sendToWs(s, text);
-			}
+		for (String wsId : wsChannelMap.keySet()) {
+			sendToWs(wsId, text);
 		}
 	}
 
@@ -593,10 +626,8 @@ public class ConnectManager {
 		msg.put("userId", userId);
 		msg.put("userName", userName);
 		String text = JsonUtil.toJson(msg);
-		for (Session s : wsSessionMap.values()) {
-			if (s != null) {
-				sendToWs(s, text);
-			}
+		for (String wsId : wsChannelMap.keySet()) {
+			sendToWs(wsId, text);
 		}
 	}
 
@@ -609,48 +640,42 @@ public class ConnectManager {
 		msg.put("userId", userId);
 		msg.put("userName", userName);
 		String text = JsonUtil.toJson(msg);
-		for (Session s : wsSessionMap.values()) {
-			if (s != null) {
-				sendToWs(s, text);
-			}
+		for (String wsId : wsChannelMap.keySet()) {
+			sendToWs(wsId, text);
 		}
 	}
 
-	/** 获取指定 WebSocket 会话所在的房间ID */
-	public Integer getWsRoomId(String sessionId) {
-		return sessionId == null ? null : wsRoomMap.get(sessionId);
+	/** 直接向指定 WebSocket 客户端发送 JSON 文本（用于登录响应、私聊等特定场景） */
+	public void sendWsOne(String wsId, String text) {
+		if (wsId == null || text == null) return;
+		if (!wsChannelMap.containsKey(wsId)) return;
+		// 通过统一入口发送，保证每个 Channel 串行发送
+		sendToWs(wsId, text);
 	}
 
-	/** 直接向指定 WebSocket 会话发送 JSON 文本（用于登录响应、私聊等特定场景） */
-	public void sendWsOne(String sessionId, String text) {
-		if (sessionId == null || text == null) return;
-		Session session = wsSessionMap.get(sessionId);
-		if (session != null) {
-			// 通过统一入口发送，保证每个 Session 串行发送
-			sendToWs(session, text);
-		}
-	}
+	/** WebSocket 私聊：从一个 WebSocket 客户端发给另一个 WebSocket 客户端 */
+	public void sendWsPrivate(String sourceWsId, String targetId, String payload) {
+		if (sourceWsId == null || targetId == null) return;
+		String sourceName = wsUserMap.get(sourceWsId);
 
-	/** WebSocket 私聊：从一个 WebSocket 客户端发给另一个 WebSocket 或 Netty 客户端 */
-	public void sendWsPrivate(String sourceSessionId, String targetId, String payload) {
-		if (sourceSessionId == null || targetId == null) return;
-		String sourceName = wsUserMap.get(sourceSessionId);
-
-		Session targetSession = wsSessionMap.get(targetId);
-		if (targetSession != null) {
+		if (wsChannelMap.containsKey(targetId)) {
 			Map<String, Object> json = JsonUtil.newMap();
 			json.put("type", "private");
 			json.put("fromUserName", sourceName == null ? "未知" : sourceName);
-			json.put("fromUserId", sourceSessionId);
+			json.put("fromUserId", sourceWsId);
 			json.put("payload", payload);
 			json.put("timestamp", System.currentTimeMillis());
-			// 通过统一入口发送，保证每个 Session 串行发送
-			sendToWs(targetSession, JsonUtil.toJson(json));
+			sendToWs(targetId, JsonUtil.toJson(json));
 			return;
 		}
 
 		// 对方不存在，告知发送方
-		sendWsOne(sourceSessionId, "{\"type\":\"system\",\"payload\":\"对方已下线\"}");
+		sendWsOne(sourceWsId, "{\"type\":\"system\",\"payload\":\"对方已下线\"}");
+	}
+
+	/** 获取所有在线的 WebSocket Channel（供系统日志 / dashboard 推送使用） */
+	public Collection<Channel> getAllWsChannels() {
+		return wsChannelMap.values();
 	}
 
 	/**
@@ -665,7 +690,7 @@ public class ConnectManager {
 	 *   }
 	 */
 	public void broadcastRoomList() {
-		if (wsSessionMap.isEmpty()) return;
+		if (wsChannelMap.isEmpty()) return;
 		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomList");
 		List<Map<String, Object>> roomArr = new java.util.ArrayList<>();
@@ -674,9 +699,9 @@ public class ConnectManager {
 			Map<String, Object> rj = JsonUtil.newMap();
 			rj.put("id", room.getId());
 			rj.put("name", room.getName());
-			if (StringUtils.isNotBlank(room.getPassword())){
+			if (StringUtils.isNotBlank(room.getPassword())) {
 				rj.put("hasPassword", "1");
-			}else{
+			} else {
 				rj.put("hasPassword", "0");
 			}
 			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
@@ -684,11 +709,11 @@ public class ConnectManager {
 		}
 		root.put("rooms", roomArr);
 		final String text = JsonUtil.toJson(root);
-		// 提交到异步线程池，使用 getAsyncRemote() 非阻塞发送
+		// 提交到异步线程池，通过 Netty writeAndFlush 推送
 		BROADCAST_EXECUTOR.submit(() -> {
-			for (Session s : wsSessionMap.values()) {
-				if (s != null && s.isOpen()) {
-					s.getAsyncRemote().sendText(text);
+			for (Channel ch : wsChannelMap.values()) {
+				if (ch != null && ch.isActive()) {
+					ch.writeAndFlush(new TextWebSocketFrame(text));
 				}
 			}
 		});

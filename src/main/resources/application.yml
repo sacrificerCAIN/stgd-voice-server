@@ -3,6 +3,7 @@ server:
   address: 0.0.0.0  # 允许所有IP访问Web服务
   host: 121.43.144.108  # 外部访问使用的IP/域名，Java启动提示与后续扩展使用
   tcp-port: 6324
+  ws-port: 8003
   udp-port: 6324
   servlet:
     session:

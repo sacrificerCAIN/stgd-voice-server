@@ -16,4 +16,6 @@ public class ServerConfig {
 	private Integer tcpPort;
 
 	private Integer udpPort;
+
+	private Integer wsPort;
 }

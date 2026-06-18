@@ -632,7 +632,7 @@
 <script>
   let chatSocket = null;
   let currentUserId = null;
-  let currentSessionId = null;
+  let currentWsId = null;
   let currentUserName = null;
   let currentRoomId = null;
   let currentRoomName = null;
@@ -692,7 +692,6 @@
         document.getElementById('loginUser').textContent = safeUsername;
         // 保存真实登录用户名，用于权限校验（WebSocket URL 中传递给后端）
         currentLoginUser = safeUsername;
-        currentSessionId = result.sessionId;
         if (isAdminUser) {
           var adminBox = document.getElementById('adminBox');
           if (adminBox) adminBox.style.display = 'block';
@@ -704,9 +703,8 @@
         document.getElementById('loginUser').textContent = '游客';
         // 未登录时 currentLoginUser 必须为 null，不作为 WebSocket URL 参数传递
         currentLoginUser = null;
-        // 后端会在建立 WebSocket 时生成一个 sessionId（即使未登录），
-        // 这里先占位，等收到后端 WebSocket 的 type:login 消息后再赋值
-        currentSessionId = result.sessionId || null;
+        // 注意：wsId 由后端在 WebSocket type:login 消息中通过 data.userId 下发，
+        // HTTP checkSession 只返回 HTTP session id，不包含 wsId，因此这里不赋值
       }
 
       //请求房间
@@ -738,7 +736,7 @@
 
   function connectChat() {
     const protocol = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
-    const host = window.location.host || 'localhost:8080';
+    const host = `${window.location.hostname || 'localhost'}:8003`;
     // 把登录用户名通过 URL query 传递给后端，后端在 onOpen 时绑定到 session，用于权限校验
     let url = protocol + '//' + host + '/ws/chat';
     if (currentLoginUser && currentLoginUser.length > 0) {
@@ -791,7 +789,10 @@
   function handleServerMessage(data) {
     const type = data.type;
     if (type === 'login') {
+      // 后端返回的 data.userId 实际上是当前 WebSocket 连接的 wsId，
+      // 与后端 publishRoomMessageWs 放入的 data.sessionId 同源，需要用它来做 isSelf 判断
       currentUserId = data.userId;
+      currentWsId = data.userId;
       addSystemMessage('已登录为 ' + data.userName);
       // 登录后立即请求一次全量的房间-用户列表
       // if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
@@ -810,7 +811,8 @@
     } else if (type === 'system') {
       addSystemMessage(data.payload);
     } else if (type === 'room') {
-      const isSelf = data.sessionId === currentSessionId;
+      // 后端 publishRoomMessageWs 放入的字段名是 sessionId（其值实际为发送者的 wsId）
+      const isSelf = currentWsId != null && data.wsId === currentWsId;
       addMessage(data.userName, data.payload, isSelf ? 'self' : 'other', 'room');
     } else if (type === 'private') {
       addMessage(data.fromUserName, data.payload, 'self', 'private');
@@ -1136,7 +1138,6 @@
     const roomInfo = Object.values(roomUserMap).find(r => r.id === roomId);
     let pwd = '';
     // 判断房间是否有密码
-    console.log('roomInfo', roomInfo)
     if (roomInfo && roomInfo.hasPassword === '1') {
       pwd = prompt('请输入房间密码：');
       // 用户点取消 / 输入空

@@ -1,57 +1,36 @@
 package com.stgd.voice.ws;
 
-import com.stgd.voice.config.HttpSessionConfigurator;
-import org.springframework.stereotype.Component;
-
-import javax.websocket.OnClose;
-import javax.websocket.OnError;
-import javax.websocket.OnOpen;
-import javax.websocket.Session;
-import javax.websocket.server.ServerEndpoint;
-import java.io.IOException;
-import java.util.Set;
-import java.util.concurrent.CopyOnWriteArraySet;
+import io.netty.channel.Channel;
+import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
+import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
+import io.netty.util.concurrent.ImmediateEventExecutor;
 
 /**
- * 系统日志 WebSocket 端点。
- * dashboard.html 仪表盘订阅 /ws/system-log 接收实时事件
+ * 系统日志 Netty WebSocket 端点。
+ * 原来基于 javax.websocket.Session 的实现已替换为 Netty ChannelGroup。
+ * dashboard.html 在 ws://.../ws/system-log 订阅，并由 NettyServer 注册这里的 Channel。
  */
-@Component
-@ServerEndpoint(value = "/ws/system-log", configurator = HttpSessionConfigurator.class)
 public class SystemLogEndpoint {
 
-    private static final Set<Session> SESSIONS = new CopyOnWriteArraySet<>();
+    private static final ChannelGroup CHANNELS = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
 
-    @OnOpen
-    public void onOpen(Session session) {
-        SESSIONS.add(session);
+    /** 连接建立 / 握手完成时调用 */
+    public static void addChannel(Channel ch) {
+        if (ch == null) return;
+        CHANNELS.add(ch);
     }
 
-    @OnClose
-    public void onClose(Session session) {
-        SESSIONS.remove(session);
+    /** 连接关闭时调用 */
+    public static void removeChannel(Channel ch) {
+        if (ch == null) return;
+        CHANNELS.remove(ch);
     }
 
-    @OnError
-    public void onError(Session session, Throwable throwable) {
-        SESSIONS.remove(session);
-    }
-
-    /**
-     * 广播一条 JSON 日志消息给所有订阅者
-     */
+    /** 广播一条 JSON 日志消息给所有订阅者 */
     public static void broadcast(String json) {
-        if (json == null) {
-            return;
-        }
-        for (Session session : SESSIONS) {
-            if (session.isOpen()) {
-                try {
-                    session.getBasicRemote().sendText(json);
-                } catch (IOException ignored) {
-                    // 忽略单次发送失败
-                }
-            }
-        }
+        if (json == null) return;
+        // Netty 的 ChannelGroup.writeAndFlush 会自动遍历所有活跃的 channel
+        CHANNELS.writeAndFlush(new TextWebSocketFrame(json));
     }
 }
