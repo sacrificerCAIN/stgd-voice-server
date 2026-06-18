@@ -5,7 +5,6 @@ import com.stgd.voice.entity.Room;
 import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.ws.SystemLogPublisher;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,10 +31,10 @@ public class RoomController {
 	/**
 	 * 校验是否为已登录用户。只有登录用户（特别是 super 管理员）可进行房间增删改操作。
 	 */
-	private boolean isAdmin(HttpSession session) {
-		if (session == null) return false;
+	private boolean isNotAdmin(HttpSession session) {
+		if (session == null) return true;
 		String username = (String) session.getAttribute("username");
-		return StringUtils.isNotBlank(username);
+		return !StringUtils.isNotBlank(username);
 	}
 
 	@PostMapping("insertRoom")
@@ -43,7 +42,7 @@ public class RoomController {
 	public Map<String, Object> insertRoom(@RequestBody Room room, HttpServletRequest request) {
 		Map<String, Object> response = new HashMap<>();
 		HttpSession session = request.getSession(false);
-		if (!isAdmin(session)) {
+		if (isNotAdmin(session)) {
 			response.put("success", false);
 			response.put("message", "未登录，禁止操作");
 			return response;
@@ -68,7 +67,7 @@ public class RoomController {
 	public Map<String, Object> removeRoom(@RequestBody Room room, HttpServletRequest request) {
 		Map<String, Object> response = new HashMap<>();
 		HttpSession session = request.getSession(false);
-		if (isAdmin(session)) {
+		if (isNotAdmin(session)) {
 			response.put("success", false);
 			response.put("message", "未登录，禁止操作");
 			return response;
@@ -95,7 +94,7 @@ public class RoomController {
 	public Map<String, Object> updateRoom(@RequestBody Room room, HttpServletRequest request) {
 		Map<String, Object> response = new HashMap<>();
 		HttpSession session = request.getSession(false);
-		if (isAdmin(session)) {
+		if (isNotAdmin(session)) {
 			response.put("success", false);
 			response.put("message", "未登录，禁止操作");
 			return response;

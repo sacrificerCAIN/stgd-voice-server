@@ -552,12 +552,6 @@
       <button class="device-btn" onclick="openDeviceModal()">选择设备</button>
       <button class="mic-test-btn" id="micTestBtn" onclick="openMicTestModal()">麦克风测试</button>
     </div>
-    <div class="admin-box" id="adminBox" style="display:none">
-      <h2>房间管理</h2>
-      <input type="text" id="adminRoomName" class="admin-input" placeholder="房间名称">
-      <input type="text" id="adminRoomPassword" class="admin-input" placeholder="房间密码（可选）">
-      <button class="admin-btn add" onclick="wsInsertRoom()">添加房间</button>
-    </div>
     <h2>房间列表</h2>
     <ul id="roomList" class="room-list">
       <li style="cursor:default;color:#999;">加载中...</li>
@@ -924,32 +918,6 @@
     });
     refreshRoomListHighlight();
     renderRoomUsers();
-  }
-
-  // WebSocket:添加房间
-  function wsInsertRoom() {
-    if (!isAdminUser) {
-      alert('没有管理员权限');
-      return;
-    }
-    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
-      alert('WebSocket 未连接');
-      return;
-    }
-    const name = document.getElementById('adminRoomName').value.trim();
-    const pwdRaw = document.getElementById('adminRoomPassword').value.trim();
-    if (!name) {
-      alert('房间名称不能为空');
-      return;
-    }
-    const password = pwdRaw ? sha256(pwdRaw) : '';
-    chatSocket.send(JSON.stringify({
-      type: 10,
-      roomName: name,
-      password: password
-    }));
-    document.getElementById('adminRoomName').value = '';
-    document.getElementById('adminRoomPassword').value = '';
   }
 
   // WebSocket:更新房间

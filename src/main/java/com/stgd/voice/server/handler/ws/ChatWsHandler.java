@@ -14,37 +14,29 @@ import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import java.util.Map;
 
 /**
- * Netty WebSocket 聊天业务处理器。
+ * Netty WebSocket 聊天业务处理器（仅处理聊天、私聊、WebRTC信令，房间管理通过 HTTP REST 接口完成）。
  *
  * 工作流程：
- *   1. 客户端通过 /ws/chat?loginUser=xxx&wsId=yyy 发起 WebSocket 握手
+ *   1. 客户端通过 /ws/chat?wsId=yyy 发起 WebSocket 握手（已移除 ?loginUser=，该参数不可信）
  *   2. ChatWsHandshaker 在协议升级前解析 query，调用 setWsInfo 注册当前 Channel
  *   3. WebSocketServerProtocolHandler 完成握手后触发 HandshakeComplete 事件，本 handler 推送一次房间列表
- *   4. 后续文本消息按 Message.type 分发处理（与旧版 ChatEndpoint 一致）
+ *   4. 后续文本消息按 Message.type 分发处理
+ *   5. 注意：房间管理（添加/删除/更新房间）仅能通过 HTTP REST 接口（需登录）完成，已从 WebSocket 移除
  */
 public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFrame> {
 
     private final ConnectManager connectManager;
-    private final RoomMapper roomMapper;
-    private final SystemLogPublisher logPublisher;
 
     private String wsId;
-    private String loginUser;
 
-    public ChatWsHandler(ConnectManager connectManager, RoomMapper roomMapper, SystemLogPublisher logPublisher) {
+    public ChatWsHandler(ConnectManager connectManager) {
         this.connectManager = connectManager;
-        this.roomMapper = roomMapper;
-        this.logPublisher = logPublisher;
     }
 
-    /** 由 ChatWsHandshaker 在协议升级之前调用，完成登录信息与 wsId 注册。 */
-    public void setWsInfo(Channel ch, String wsId, String loginUser) {
+    /** 由 ChatWsHandshaker 在协议升级之前调用，完成 wsId 注册。 */
+    public void setWsInfo(Channel ch, String wsId) {
         this.wsId = wsId;
-        this.loginUser = loginUser;
         connectManager.addWsChannel(wsId, ch);
-        if (loginUser != null) {
-            connectManager.setWsLoginUser(wsId, loginUser);
-        }
     }
 
     @Override
@@ -92,9 +84,7 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
                 case 7:  handleLogout(ctx); break;
                 case 8:  handleGetAllRoomUsers(ctx); break;
                 case 9:  handleGetRoomList(ctx); break;
-                case 10: handleInsertRoom(ctx, message); break;
-                case 11: handleRemoveRoom(ctx, message); break;
-                case 12: handleUpdateRoom(ctx, message); break;
+                // type=10/11/12 已从 WebSocket 移除，房间管理请通过 HTTP REST 接口（需登录）
                 case 13: handleWebRtcSignal(ctx, message); break;
                 default: sendSystem(ctx, "未知消息类型");
             }
@@ -219,86 +209,6 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
 
     private void handleGetRoomList(ChannelHandlerContext ctx) {
         connectManager.broadcastRoomList();
-    }
-
-    private void handleInsertRoom(ChannelHandlerContext ctx, Message message) {
-        String loginUserName = connectManager.getWsLoginUser(this.wsId);
-        if (loginUserName == null) { sendSystem(ctx, "登录信息丢失，请刷新页面"); return; }
-        if (!"super".equals(loginUserName)) { sendSystem(ctx, "没有权限添加房间"); return; }
-        String userName = connectManager.getWsUserName(this.wsId);
-        if (userName == null) { sendSystem(ctx, "请先设置昵称"); return; }
-        String roomName = message.getRoomName();
-        if (roomName == null || roomName.trim().isEmpty()) { sendSystem(ctx, "房间名称不能为空"); return; }
-        Room room = new Room();
-        room.setName(roomName.trim());
-        String pwd = message.getPassword();
-        if (pwd != null && !pwd.trim().isEmpty()) room.setPassword(pwd.trim());
-        int dbResult = roomMapper.insert(room);
-        connectManager.addRoom(room);
-        if (dbResult > 0) {
-            sendSystem(ctx, "房间 [" + room.getName() + "] 添加成功");
-            if (logPublisher != null) {
-                logPublisher.publish("room", null, room.getName(),
-                        userName + " 通过 WebSocket 添加了房间 [" + room.getName() + "]");
-            }
-        } else {
-            sendSystem(ctx, "房间添加失败");
-        }
-    }
-
-    private void handleRemoveRoom(ChannelHandlerContext ctx, Message message) {
-        String loginUserName = connectManager.getWsLoginUser(this.wsId);
-        if (loginUserName == null) { sendSystem(ctx, "登录信息丢失，请刷新页面"); return; }
-        if (!"super".equals(loginUserName)) { sendSystem(ctx, "没有权限删除房间"); return; }
-        String userName = connectManager.getWsUserName(this.wsId);
-        if (userName == null) { sendSystem(ctx, "请先设置昵称"); return; }
-        Integer roomId = message.getRoomId();
-        if (roomId == null) { sendSystem(ctx, "房间ID不能为空"); return; }
-        Room room = connectManager.findRoomById(roomId);
-        String removedName = room != null ? room.getName() : ("房间#" + roomId);
-        connectManager.removeRoom(roomId);
-        int dbResult = roomMapper.deleteById(roomId);
-        if (dbResult > 0) {
-            sendSystem(ctx, "房间 [" + removedName + "] 已删除");
-            if (logPublisher != null) {
-                logPublisher.publish("room", null, removedName,
-                        userName + " 通过 WebSocket 删除了房间 [" + removedName + "]");
-            }
-        } else {
-            sendSystem(ctx, "房间删除失败（数据库中可能不存在）");
-        }
-    }
-
-    private void handleUpdateRoom(ChannelHandlerContext ctx, Message message) {
-        String loginUserName = connectManager.getWsLoginUser(this.wsId);
-        if (loginUserName == null) { sendSystem(ctx, "登录信息丢失，请刷新页面"); return; }
-        if (!"super".equals(loginUserName)) { sendSystem(ctx, "没有权限更新房间"); return; }
-        String userName = connectManager.getWsUserName(this.wsId);
-        if (userName == null) { sendSystem(ctx, "请先设置昵称"); return; }
-        Integer roomId = message.getRoomId();
-        if (roomId == null) { sendSystem(ctx, "房间ID不能为空"); return; }
-        Room existRoom = connectManager.findRoomById(roomId);
-        if (existRoom == null) { sendSystem(ctx, "房间不存在"); return; }
-        Room updateRoom = new Room();
-        updateRoom.setId(roomId);
-        String newName = message.getRoomName();
-        if (newName != null && !newName.trim().isEmpty()) updateRoom.setName(newName.trim());
-        else updateRoom.setName(existRoom.getName());
-        String pwd = message.getPassword();
-        if (pwd != null) updateRoom.setPassword(pwd.trim());
-        else updateRoom.setPassword(existRoom.getPassword());
-        int dbResult = roomMapper.updateById(updateRoom);
-        updateRoom.setUserNum(existRoom.getUserNum());
-        connectManager.addRoom(updateRoom);
-        if (dbResult > 0) {
-            sendSystem(ctx, "房间 [" + updateRoom.getName() + "] 更新成功");
-            if (logPublisher != null) {
-                logPublisher.publish("room", null, updateRoom.getName(),
-                        userName + " 通过 WebSocket 更新了房间 [" + updateRoom.getName() + "]");
-            }
-        } else {
-            sendSystem(ctx, "房间更新失败");
-        }
     }
 
     private void sendSystem(ChannelHandlerContext ctx, String text) {

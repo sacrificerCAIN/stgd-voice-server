@@ -49,8 +49,6 @@ public class NettyMain {
 	@Resource
 	private ServerConfig serverConfig;
 	@Resource
-	private RoomMapper roomMapper;
-	@Resource
 	private SystemLogPublisher logPublisher;
 
 	private static int getIdleTimeoutSeconds(ServerConfig serverConfig) {
@@ -114,7 +112,7 @@ public class NettyMain {
 						// 根据第一次 HTTP 升级请求的 URI 路径，动态决定后续安装哪一套 WebSocket 子流程。
 						// - /ws/chat       -> ChatWsHandshaker + WebSocketServerProtocolHandler(/ws/chat) + ChatWsHandler
 						// - /ws/system-log -> WebSocketServerProtocolHandler(/ws/system-log) + SystemLogWsHandler
-						final ChatWsHandler chatHandler = new ChatWsHandler(connectManager, roomMapper, logPublisher);
+						final ChatWsHandler chatHandler = new ChatWsHandler(connectManager);
 						final SystemLogWsHandler logHandler = new SystemLogWsHandler();
 
 						Runnable installChat = () -> {

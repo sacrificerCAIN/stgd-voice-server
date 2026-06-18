@@ -12,11 +12,14 @@ import java.util.UUID;
  * WebSocket 握手前置处理器。
  *
  * 在 WebSocketServerProtocolHandler 完成协议升级之前，
- * 读取第一个 HTTP（升级）请求，解析其 query 中的 wsId 与 loginUser，
+ * 读取第一个 HTTP（升级）请求，解析其 query 中的 wsId，
  * 并通过 {@link ChatWsHandler#setWsInfo} 注册到业务 handler，
  * 之后把请求继续交给下游完成协议升级。
  *
  * 若请求中未提供 wsId，则自动生成一个，保证后续逻辑可用。
+ *
+ * 注意：已移除 ?loginUser= 参数（该参数不可信，易被伪造）。
+ * 房间管理等敏感操作仅能通过 HTTP REST 接口（需登录 Session）完成。
  */
 public class ChatWsHandshaker extends ChannelInboundHandlerAdapter {
 
@@ -36,8 +39,8 @@ public class ChatWsHandshaker extends ChannelInboundHandlerAdapter {
                 if (wsId == null || wsId.isEmpty()) {
                     wsId = UUID.randomUUID().toString();
                 }
-                String loginUser = firstParam(decoder, "loginUser");
-                chatHandler.setWsInfo(ctx.channel(), wsId, loginUser);
+                // 注意：不再从 URL query 读取 loginUser（该参数不可信，易被伪造）
+                chatHandler.setWsInfo(ctx.channel(), wsId);
             } finally {
                 // FullHttpRequest 的内容会由下游继续读取，这里不 release
             }

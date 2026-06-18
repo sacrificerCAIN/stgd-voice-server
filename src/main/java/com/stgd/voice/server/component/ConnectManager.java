@@ -71,8 +71,6 @@ public class ConnectManager {
 	private static final ConcurrentHashMap<Channel, String> channelToWsId = new ConcurrentHashMap<>();
 	// wsId -> 昵称（用户在前端自定义设置）
 	private static final ConcurrentHashMap<String, String> wsUserMap = new ConcurrentHashMap<>();
-	// wsId -> HTTP 登录的真实用户名（用于权限校验，不可伪造，来自 URL query ?loginUser=xxx）
-	private static final ConcurrentHashMap<String, String> wsLoginUserMap = new ConcurrentHashMap<>();
 	// wsId -> 当前房间ID（用于离开时清理）
 	private static final ConcurrentHashMap<String, Integer> wsRoomMap = new ConcurrentHashMap<>();
 
@@ -220,12 +218,16 @@ public class ConnectManager {
 			return;
 		}
 
-		String sourceUserName;
+		String sourceUserName = "";
 		if (sourceChannelIdString == null){
 			sourceUserName = "服务器";
 		}else{
 			User sourceUser = findUserByIdString(sourceChannelIdString);
-			sourceUserName =  sourceUser.getName();
+			if (sourceUser != null){
+				sourceUserName = sourceUser.getName();
+			}else{
+				return;
+			}
 		}
 
 		if (channel != null){
@@ -263,7 +265,6 @@ public class ConnectManager {
 			channelToWsId.remove(oldCh);
 		}
 		String userName = wsUserMap.remove(wsId);
-		wsLoginUserMap.remove(wsId);
 		Integer roomId = wsRoomMap.remove(wsId);
 		if (roomId != null) {
 			Room room = roomMap.get(roomId);
@@ -409,18 +410,6 @@ public class ConnectManager {
 	/** 获取 WebSocket 客户端的昵称 */
 	public String getWsUserName(String wsId) {
 		return wsId == null ? null : wsUserMap.get(wsId);
-	}
-
-	/** 设置 WebSocket 客户端对应的登录用户名（连接建立时，由 URL query 的 loginUser 传入） */
-	public void setWsLoginUser(String wsId, String loginUserName) {
-		if (wsId == null) return;
-		if (loginUserName == null || loginUserName.trim().isEmpty()) return;
-		wsLoginUserMap.put(wsId, loginUserName.trim());
-	}
-
-	/** 获取 WebSocket 客户端对应的登录用户名（用于权限校验） */
-	public String getWsLoginUser(String wsId) {
-		return wsId == null ? null : wsLoginUserMap.get(wsId);
 	}
 
 	/** WebSocket 客户端真正加入房间（会更新房间 userNum，房间内所有成员可见） */
@@ -592,7 +581,7 @@ public class ConnectManager {
 		if (wsChannelMap.isEmpty()) return;
 		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomUsers");
-		List<Map<String, Object>> roomArr = new java.util.ArrayList<>();
+		List<Map<String, Object>> roomArr = new ArrayList<>();
 		for (Room room : roomMap.values()) {
 			if (room == null) continue;
 			Map<String, Object> rj = JsonUtil.newMap();
@@ -605,7 +594,7 @@ public class ConnectManager {
 			}
 
 			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
-			List<Map<String, Object>> userArr = new java.util.ArrayList<>();
+			List<Map<String, Object>> userArr = new ArrayList<>();
 			Set<String> ids = room.getUserChannelIdSet();
 			if (ids != null) {
 				for (String idStr : ids) {
@@ -703,7 +692,7 @@ public class ConnectManager {
 		if (wsChannelMap.isEmpty()) return;
 		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomList");
-		List<Map<String, Object>> roomArr = new java.util.ArrayList<>();
+		List<Map<String, Object>> roomArr = new ArrayList<>();
 		for (Room room : roomMap.values()) {
 			if (room == null) continue;
 			Map<String, Object> rj = JsonUtil.newMap();
