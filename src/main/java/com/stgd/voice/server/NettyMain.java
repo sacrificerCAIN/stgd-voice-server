@@ -87,13 +87,7 @@ public class NettyMain {
 				tcpFuture = tcpBootstrap.bind(serverConfig.getTcpPort()).sync();
 				System.out.println("TCP服务启动成功，端口：" + serverConfig.getTcpPort());
 			} catch (Exception e) {
-				if (e.getCause() instanceof BindException) {
-					System.err.println("TCP端口绑定失败：" + serverConfig.getTcpPort() +
-							"，可能已被占用或没有权限，程序会在5秒后关闭");
-					Thread.sleep(5000);
-					System.exit(1);
-					return;
-				}
+				handleBindException(e, "TCP", serverConfig.getTcpPort());
 				throw e;
 			}
 
@@ -127,13 +121,7 @@ public class NettyMain {
 					wsBootstrap.bind(wsPort).sync();
 					System.out.println("WebSocket服务启动成功，端口：" + wsPort + "（路径 /ws/chat）");
 				} catch (Exception e) {
-					if (e.getCause() instanceof BindException) {
-						System.err.println("WebSocket端口绑定失败：" + wsPort +
-								"，可能已被占用或没有权限，程序会在5秒后关闭");
-						Thread.sleep(5000);
-						System.exit(1);
-						return;
-					}
+					handleBindException(e, "WebSocket", wsPort);
 					throw e;
 				}
 			} else {
@@ -141,47 +129,38 @@ public class NettyMain {
 			}
 
 			// ============ UDP 服务器 ============
-			try {
-				Bootstrap udpBootstrap = new Bootstrap();
-				udpBootstrap.group(udpGroup)
-					.channel(NioDatagramChannel.class)
-					.handler(new ChannelInitializer<DatagramChannel>() {
-						@Override
-						public void initChannel(DatagramChannel ch) {
-							ch.pipeline().addLast(new VoiceHandler());
-						}
-					});
-
-				ChannelFuture udpFuture;
-				try {
-					udpFuture = udpBootstrap.bind(serverConfig.getUdpPort()).sync();
-					System.out.println("UDP服务启动成功，端口：" + serverConfig.getUdpPort());
-				} catch (Exception e) {
-					if (e.getCause() instanceof BindException) {
-						System.err.println("UDP端口绑定失败：" + serverConfig.getUdpPort() +
-								"，可能已被占用或没有权限，程序会在5秒后关闭");
-						Thread.sleep(5000);
-						System.exit(1);
-						return;
+			Bootstrap udpBootstrap = new Bootstrap();
+			udpBootstrap.group(udpGroup)
+				.channel(NioDatagramChannel.class)
+				.handler(new ChannelInitializer<DatagramChannel>() {
+					@Override
+					public void initChannel(DatagramChannel ch) {
+						ch.pipeline().addLast(new VoiceHandler());
 					}
-					throw e;
-				}
+				});
 
-				connectManager.init();
-				System.out.println("项目启动成功");
-				String host = (serverConfig.getHost() != null && !serverConfig.getHost().trim().isEmpty())
-						? serverConfig.getHost().trim()
-						: "localhost";
-				System.out.println("控制台 http://" + host + ":" + serverConfig.getPort());
-				System.out.println("聊天室 http://" + host + ":" + serverConfig.getPort() + "/chat.html");
-
-				// 等待主 TCP 服务器关闭
-				if (tcpFuture != null) {
-					tcpFuture.channel().closeFuture().sync();
-				}
-			} finally {
-				udpGroup.shutdownGracefully();
+			ChannelFuture udpFuture;
+			try {
+				udpFuture = udpBootstrap.bind(serverConfig.getUdpPort()).sync();
+				System.out.println("UDP服务启动成功，端口：" + serverConfig.getUdpPort());
+			} catch (Exception e) {
+				handleBindException(e, "UDP", serverConfig.getUdpPort());
+				throw e;
 			}
+
+			connectManager.init();
+			System.out.println("项目启动成功");
+			String host = (serverConfig.getHost() != null && !serverConfig.getHost().trim().isEmpty())
+					? serverConfig.getHost().trim()
+					: "localhost";
+			System.out.println("控制台 http://" + host + ":" + serverConfig.getPort());
+			System.out.println("聊天室 http://" + host + ":" + serverConfig.getPort() + "/chat.html");
+
+			// 等待主 TCP 服务器关闭
+			if (tcpFuture != null) {
+				tcpFuture.channel().closeFuture().sync();
+			}
+
 		} catch (InterruptedException e) {
 			System.err.println("服务被中断：" + e.getMessage());
 			Thread.currentThread().interrupt();
@@ -194,5 +173,14 @@ public class NettyMain {
 			wsGroup.shutdownGracefully();
 			udpGroup.shutdownGracefully();
 		}
+	}
+
+	private static void handleBindException(Exception e, String serviceName, Integer port) throws Exception {
+		if (e.getCause() instanceof BindException) {
+			System.err.println(serviceName + "端口绑定失败：" + port + "，可能已被占用或没有权限，程序会在5秒后关闭");
+			Thread.sleep(5000);
+			System.exit(1);
+		}
+		throw e;
 	}
 }

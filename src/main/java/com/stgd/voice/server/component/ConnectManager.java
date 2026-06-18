@@ -31,19 +31,30 @@ public class ConnectManager {
 	/**
 	 * 专用线程池：负责所有房间消息/广播的异步推送。
 	 * 不阻塞业务线程，避免一条消息推送给 N 个用户时整个系统卡住。
+	 *
+	 * 关键配置：
+	 *   - 有界队列：最大 10000 个待推送任务，超过后触发拒绝策略（防止 OOM）
+	 *   - CallerRunsPolicy：队列满时由提交线程自己执行（自然反压，不丢消息）
+	 *   - 固定核心线程数：Math.max(2, CPU/2)，IO 密集型不需要太多线程
 	 */
 	public static final int BROADCAST_THREAD_POOL_SIZE = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-	public static final ExecutorService BROADCAST_EXECUTOR = Executors.newFixedThreadPool(
-		BROADCAST_THREAD_POOL_SIZE,
-		new ThreadFactory() {
-			private final AtomicInteger counter = new AtomicInteger(0);
-			@Override
-			public Thread newThread(Runnable r) {
-				Thread t = new Thread(r, "broadcast-" + counter.incrementAndGet());
-				t.setDaemon(true);
-				return t;
-			}
-		}
+	private static final int BROADCAST_QUEUE_CAPACITY = 10000;
+
+	public static final ExecutorService BROADCAST_EXECUTOR = new ThreadPoolExecutor(
+			BROADCAST_THREAD_POOL_SIZE,
+			BROADCAST_THREAD_POOL_SIZE,
+			0L, TimeUnit.MILLISECONDS,
+			new LinkedBlockingQueue<>(BROADCAST_QUEUE_CAPACITY),
+			new ThreadFactory() {
+				private final AtomicInteger counter = new AtomicInteger(0);
+				@Override
+				public Thread newThread(Runnable r) {
+					Thread t = new Thread(r, "broadcast-" + counter.incrementAndGet());
+					t.setDaemon(true);
+					return t;
+				}
+			},
+			new ThreadPoolExecutor.CallerRunsPolicy()
 	);
 
 	// ============ Netty TCP 客户端 ============
@@ -56,6 +67,8 @@ public class ConnectManager {
 	// ============ WebSocket 浏览器客户端（使用 Netty WebSocket 实现，替换原来的 javax.websocket） ============
 	// wsId -> Netty Channel（wsId 即为原来的 httpSessionId，由前端传入或后端生成唯一ID）
 	private static final ConcurrentHashMap<String, Channel> wsChannelMap = new ConcurrentHashMap<>();
+	// Netty Channel -> wsId（反向映射，用于从 Channel 快速反查 wsId，避免 O(n) 遍历）
+	private static final ConcurrentHashMap<Channel, String> channelToWsId = new ConcurrentHashMap<>();
 	// wsId -> 昵称（用户在前端自定义设置）
 	private static final ConcurrentHashMap<String, String> wsUserMap = new ConcurrentHashMap<>();
 	// wsId -> HTTP 登录的真实用户名（用于权限校验，不可伪造，来自 URL query ?loginUser=xxx）
@@ -187,10 +200,8 @@ public class ConnectManager {
 
 	public void publishOne(String targetChannelIdString, String s){
 		ChannelId channelId = channelWithStringIdMap.get(targetChannelIdString);
-		Channel channel;
-		try {
-			channel = channelGroup.find(channelId);
-		}catch (NullPointerException e){
+		Channel channel = channelGroup.find(channelId);
+		if (channelId == null){
 			return;
 		}
 		channel.writeAndFlush("[服务器]对你说：" + s + "\n");
@@ -237,12 +248,16 @@ public class ConnectManager {
 	public void addWsChannel(String wsId, Channel wsChannel) {
 		if (wsId == null || wsChannel == null) return;
 		wsChannelMap.put(wsId, wsChannel);
+		channelToWsId.put(wsChannel, wsId);
 	}
 
 	/** 移除一个 WebSocket 连接（连接关闭时调用，自动退出所在房间、清除用户信息） */
 	public void removeWsChannel(String wsId) {
 		if (wsId == null) return;
-		wsChannelMap.remove(wsId);
+		Channel oldCh = wsChannelMap.remove(wsId);
+		if (oldCh != null) {
+			channelToWsId.remove(oldCh);
+		}
 		String userName = wsUserMap.remove(wsId);
 		wsLoginUserMap.remove(wsId);
 		Integer roomId = wsRoomMap.remove(wsId);
@@ -275,13 +290,10 @@ public class ConnectManager {
 		return wsId == null ? null : wsChannelMap.get(wsId);
 	}
 
-	/** 查找指定 WebSocket Channel 对应的 wsId（供 handler 内部回查） */
+	/** 查找指定 WebSocket Channel 对应的 wsId（供 handler 内部回查，O(1) 反向映射） */
 	public String getWsIdByChannel(Channel ch) {
 		if (ch == null) return null;
-		for (Map.Entry<String, Channel> e : wsChannelMap.entrySet()) {
-			if (ch.equals(e.getValue())) return e.getKey();
-		}
-		return null;
+		return channelToWsId.get(ch);
 	}
 
 	// ==================== 统一的 WebSocket 消息推送（保证每个 Channel 串行发送） ====================
@@ -359,19 +371,13 @@ public class ConnectManager {
 
 	/**
 	 * 直接向指定 Channel 发送 JSON 文本（当调用者手头只有 Channel 时使用）。
-	 * 会先反查 wsId，然后走上面的统一发送逻辑，保证串行发送。
+	 * 会先通过反向映射反查 wsId（O(1)），然后走上面的统一发送逻辑，保证串行发送。
 	 */
 	public static void sendToWs(Channel channel, String text) {
 		if (channel == null || text == null) return;
 		if (!channel.isActive()) return;
-		// 从 wsChannelMap 反查 wsId
-		String wsId = null;
-		for (Map.Entry<String, Channel> e : wsChannelMap.entrySet()) {
-			if (channel.equals(e.getValue())) {
-				wsId = e.getKey();
-				break;
-			}
-		}
+		// 从反向映射 O(1) 反查 wsId
+		String wsId = channelToWsId.get(channel);
 		if (wsId == null) {
 			// 极端情况：尚未在 map 中注册，那就直接发送一次
 			channel.writeAndFlush(new TextWebSocketFrame(text));
