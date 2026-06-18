@@ -8,6 +8,8 @@ import com.stgd.voice.server.handler.text.TextHandler;
 import com.stgd.voice.server.handler.voice.VoiceHandler;
 import com.stgd.voice.server.handler.ws.ChatWsHandler;
 import com.stgd.voice.server.handler.ws.ChatWsHandshaker;
+import com.stgd.voice.server.handler.ws.SystemLogWsHandler;
+import com.stgd.voice.server.handler.ws.WebSocketPathRouter;
 import com.stgd.voice.service.publish.impl.strategy.factory.MessageStrategyFactory;
 import com.stgd.voice.ws.SystemLogPublisher;
 import com.stgd.voice.mapper.RoomMapper;
@@ -99,27 +101,38 @@ public class NettyMain {
 						.channel(NioServerSocketChannel.class)
 						.childHandler(new ChannelInitializer<SocketChannel>() {
 						@Override
-						public void initChannel(SocketChannel ch) {
-							// 读空闲超时：在规定时间内没有收到客户端数据，则由 IdleStateHandler 派发 IdleStateEvent
-							int idleSecs = getIdleTimeoutSeconds(serverConfig);
-							if (idleSecs > 0) {
-								ch.pipeline().addLast("idleState", new IdleStateHandler(idleSecs, 0, 0, TimeUnit.SECONDS));
-								ch.pipeline().addLast("idleHandler", new IdleEventHandler("WS"));
-							}
-							ch.pipeline().addLast(new HttpServerCodec());
-							ch.pipeline().addLast(new HttpObjectAggregator(65536));
-							// 1. 在协议升级之前先从 HTTP 请求中解析 query（wsId、loginUser），保存到 channel 属性中
-							ChatWsHandler chatHandler = new ChatWsHandler(connectManager, roomMapper, logPublisher);
+					public void initChannel(SocketChannel ch) {
+						// 读空闲超时：在规定时间内没有收到客户端数据，则由 IdleStateHandler 派发 IdleStateEvent
+						int idleSecs = getIdleTimeoutSeconds(serverConfig);
+						if (idleSecs > 0) {
+							ch.pipeline().addLast("idleState", new IdleStateHandler(idleSecs, 0, 0, TimeUnit.SECONDS));
+							ch.pipeline().addLast("idleHandler", new IdleEventHandler("WS"));
+						}
+						ch.pipeline().addLast(new HttpServerCodec());
+						ch.pipeline().addLast(new HttpObjectAggregator(65536));
+
+						// 根据第一次 HTTP 升级请求的 URI 路径，动态决定后续安装哪一套 WebSocket 子流程。
+						// - /ws/chat       -> ChatWsHandshaker + WebSocketServerProtocolHandler(/ws/chat) + ChatWsHandler
+						// - /ws/system-log -> WebSocketServerProtocolHandler(/ws/system-log) + SystemLogWsHandler
+						final ChatWsHandler chatHandler = new ChatWsHandler(connectManager, roomMapper, logPublisher);
+						final SystemLogWsHandler logHandler = new SystemLogWsHandler();
+
+						Runnable installChat = () -> {
 							ch.pipeline().addLast(new ChatWsHandshaker(chatHandler));
-							// 2. WebSocket 协议处理，路径：/ws/chat（与旧版一致）
 							ch.pipeline().addLast(new WebSocketServerProtocolHandler("/ws/chat", true));
-							// 3. 业务 handler：只接收 WebSocketFrame（握手完成后由 HandshakeComplete 推送房间列表）
 							ch.pipeline().addLast(chatHandler);
+						};
+						Runnable installLog = () -> {
+							ch.pipeline().addLast(new WebSocketServerProtocolHandler("/ws/system-log", true));
+							ch.pipeline().addLast(logHandler);
+						};
+
+						ch.pipeline().addLast(new WebSocketPathRouter(chatHandler, logHandler, installChat, installLog));
 						}
 					});
 				try {
 					wsBootstrap.bind(wsPort).sync();
-					System.out.println("WebSocket服务启动成功，端口：" + wsPort + "（路径 /ws/chat）");
+					System.out.println("WebSocket服务启动成功，端口：" + wsPort + "（路径 /ws/chat、/ws/system-log）");
 				} catch (Exception e) {
 					handleBindException(e, "WebSocket", wsPort);
 					throw e;

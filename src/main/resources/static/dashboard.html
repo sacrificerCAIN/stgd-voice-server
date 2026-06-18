@@ -622,6 +622,7 @@
     let reconnectDelay = 2000;
     let maxReconnectDelay = 30000;
     let manuallyClosed = false;
+    let heartbeatTimer = null;
 
     function setWsStatus(status, text) {
         const el = document.getElementById('wsStatus');
@@ -675,6 +676,13 @@
             reconnectDelay = 2000;
             setWsStatus('connected', '已连接');
             appendLog('SYSTEM', '已连接系统日志服务');
+            // 启动 30 秒心跳：防止读空闲超时被服务端关闭
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+            heartbeatTimer = setInterval(function () {
+                if (systemLogSocket && systemLogSocket.readyState === WebSocket.OPEN) {
+                    systemLogSocket.send(JSON.stringify({type: 'heartbeat', timestamp: Date.now()}));
+                }
+            }, 30000);
             // 连接成功后立刻拉取一次最新房间列表
             loadRooms();
         };
@@ -682,10 +690,14 @@
         systemLogSocket.onmessage = function (event) {
             try {
                 const data = JSON.parse(event.data);
+                const type = (data.type || 'system').toLowerCase();
+
+                // 心跳消息：不显示，不处理
+                if (type === 'heartbeat') return;
+
                 const level = (data.level || 'INFO').toUpperCase();
                 const msg = data.message || event.data;
                 const ts = data.timestamp || Date.now();
-                const type = (data.type || 'system').toLowerCase();
 
                 // 根据事件类型决定显示前缀
                 let prefix = '';
@@ -728,6 +740,11 @@
 
         systemLogSocket.onclose = function (event) {
             setWsStatus('disconnected', '已断开');
+            // 关闭心跳
+            if (heartbeatTimer) {
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+            }
             if (!manuallyClosed) {
                 appendLog('SYSTEM', '系统日志连接已断开，' + (reconnectDelay / 1000) + 's 后尝试重连...');
                 scheduleReconnect();
