@@ -643,6 +643,8 @@
   // 当前所有房间的用户信息（roomId -> { id, name, users: [{userId,userName}] }）
   let roomUserMap = {};
   let hasTriggerUnload = false;
+  // 心跳定时器：每30秒发送心跳包，防止服务端读空闲超时踢掉连接
+  let heartbeatTimer = null;
 
   // Cookie工具
   function setCookie(name, value, days = 30) {
@@ -753,6 +755,18 @@
       setWsStatus('connected', '已连接');
       addSystemMessage('聊天室已连接');
 
+      // 启动心跳：每30秒发送一次心跳包（type: 2），防止服务端读空闲超时踢掉连接
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(function() {
+        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+          try {
+            chatSocket.send(JSON.stringify({ type: 2 }));
+          } catch(e) {
+            console.warn('心跳发送失败', e);
+          }
+        }
+      }, 30000);
+
       // 连接成功后自动设置本地保存的昵称
       const savedNick = getCookie("chatNickname");
       if (savedNick && savedNick.trim()) {
@@ -778,11 +792,21 @@
     };
     chatSocket.onclose = function() {
       setWsStatus('disconnected', '已断开');
+      // 停止心跳定时器
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
       addSystemMessage('聊天室连接已关闭，3秒后自动重连...');
       setTimeout(connectChat, 3000);
     };
     chatSocket.onerror = function() {
       setWsStatus('disconnected', '连接错误');
+      // 出错时也停止心跳定时器，防止重连前有多个定时器
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
     };
   }
 
