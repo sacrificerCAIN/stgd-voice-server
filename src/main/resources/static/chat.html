@@ -288,8 +288,18 @@
       padding: 8px 12px;
       border-radius: 8px;
       max-width: 70%;
+      white-space: pre-wrap;
       word-wrap: break-word;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-height: 1.5;
     }
+    .message .content a.link {
+      color: #1976D2;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+    .message.self .content a.link { color: #bbdefb; }
     .message.system { align-items: center; }
     .message.system .content {
       background: #e9ecef;
@@ -1332,6 +1342,28 @@
     });
   }
 
+  // HTML 转义，防止 XSS
+  function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // 将文本中的 URL 解析为可点击的超链接（保留普通文本的换行）
+  function renderContentWithLinks(text) {
+    const safe = escapeHtml(text);
+    // 匹配 http/https/ftp/www 开头的 URL（允许常见字符）
+    const urlReg = /(https?:\/\/|ftp:\/\/|www\.)[^\s<]+/gi;
+    return safe.replace(urlReg, function(m) {
+      const href = m.toLowerCase().startsWith('www.') ? 'http://' + m : m;
+      return '<a class="link" href="' + href + '" target="_blank" rel="noopener noreferrer">' + m + '</a>';
+    });
+  }
+
   function addMessage(userName, content, cls, extra) {
     const container = document.getElementById('messages');
     const div = document.createElement('div');
@@ -1345,7 +1377,7 @@
     meta.textContent = userName + ' ' + h + ':' + m + ':' + s;
     const contentDiv = document.createElement('div');
     contentDiv.className = 'content';
-    contentDiv.textContent = content;
+    contentDiv.innerHTML = renderContentWithLinks(content);
     div.appendChild(meta);
     div.appendChild(contentDiv);
     container.appendChild(div);
