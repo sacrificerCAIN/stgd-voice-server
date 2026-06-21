@@ -21,15 +21,17 @@
       justify-content: space-between;
       align-items: center;
     }
-    .header h1 {
-      margin: 0;
+    .header .header-title {
       font-size: 18px;
+      font-weight: bold;
+      margin-right: auto; /* 左对齐，占据左侧空间 */
     }
     .header .user-info {
       font-size: 14px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+      margin-left: auto; /* 右对齐，推到右侧 */
     }
     .header .logout-btn {
       background: #ff6b6b;
@@ -38,7 +40,7 @@
       padding: 6px 14px;
       border-radius: 4px;
       cursor: pointer;
-      margin-left: 8px;
+      margin-left: 4px;
       min-height: 36px;
     }
     .header .dashboard-btn {
@@ -48,7 +50,7 @@
       padding: 6px 14px;
       border-radius: 4px;
       cursor: pointer;
-      margin-left: 8px;
+      margin-left: 4px;
       min-height: 36px;
     }
     .header .dashboard-btn:hover {
@@ -823,6 +825,7 @@
 <body>
 <div class="header">
     <button class="hamburger-btn" id="hamburgerBtn" aria-label="菜单">☰</button>
+    <span class="header-title">STGD Voice Chat</span>
     <div class="user-info">
       <span id="loginUser">-</span>
       <button class="dashboard-btn" id="dashboardBtn" style="display:none;" onclick="gotoDashboard()">控制台</button>
@@ -1466,7 +1469,7 @@
     const text = input.value.trim();
     if (!text) return;
     if (!currentUserName) { alert('请先设置昵称'); return; }
-    if (!currentRoomId) { alert('请先选择房间'); return; }
+    if (!currentRoomId) { alert('您还未加入任何房间！'); return; }
     if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
       chatSocket.send(JSON.stringify({ type: 3, roomId: currentRoomId, payload: text }));
       input.value = '';

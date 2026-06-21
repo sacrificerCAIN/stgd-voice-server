@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.stgd.voice.mapper.IpBlacklistMapper">
+    <select id="selectAll" resultType="com.stgd.voice.entity.IpBlacklist">
+        select * from ip_blacklist
+    </select>
+    <select id="selectByIp" resultType="com.stgd.voice.entity.IpBlacklist">
+        select * from ip_blacklist where ip = #{ip}
+    </select>
+</mapper>

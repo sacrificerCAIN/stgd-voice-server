@@ -497,6 +497,7 @@
         <h2>导航菜单</h2>
         <div class="nav-item active" data-tab="rooms">🏠 房间管理</div>
         <div class="nav-item" data-tab="admins">👤 管理员</div>
+        <div class="nav-item" data-tab="blacklist">🚫 IP 黑名单</div>
         <div class="nav-item" data-tab="logs">📋 系统日志</div>
     </div>
 
@@ -538,6 +539,37 @@
                         <th style="width:80px;">ID</th>
                         <th>用户名</th>
                         <th style="width:220px;">操作</th>
+                    </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="tab-blacklist" class="tab-panel">
+            <div class="card">
+                <div class="card-header">
+                    <h2>IP 黑名单</h2>
+                    <div>
+                        <button class="btn btn-primary" onclick="loadBlacklist()">刷新</button>
+                        <button class="btn btn-info" onclick="openBlacklistModal()">+ 添加 IP</button>
+                        <button class="btn btn-warning" onclick="kickIpModal()">按 IP 踢下线</button>
+                        <button class="btn btn-danger" onclick="reloadBlacklist()">重新加载</button>
+                    </div>
+                </div>
+                <div id="blacklistMessage" class="msg-bar"></div>
+                <div class="form-group">
+                    <label>当前请求方 IP（用于测试）：</label>
+                    <div id="myIpInfo" style="font-family:Consolas, monospace;">-</div>
+                </div>
+                <table id="blacklistTable">
+                    <thead>
+                    <tr>
+                        <th style="width:80px;">ID</th>
+                        <th style="width:200px;">IP</th>
+                        <th>备注</th>
+                        <th style="width:180px;">添加时间</th>
+                        <th style="width:120px;">操作</th>
                     </tr>
                     </thead>
                     <tbody></tbody>
@@ -600,6 +632,40 @@
     </div>
 </div>
 
+<!-- 黑名单添加弹窗 -->
+<div id="blacklistModal" class="modal-mask">
+    <div class="modal-box">
+        <h3>添加 IP 黑名单</h3>
+        <div class="form-group">
+            <label for="blacklistIp">IP</label>
+            <input type="text" id="blacklistIp" placeholder="例如 192.168.1.10">
+        </div>
+        <div class="form-group">
+            <label for="blacklistRemark">备注</label>
+            <input type="text" id="blacklistRemark" placeholder="例如 恶意访问">
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-danger" onclick="closeBlacklistModal()">取消</button>
+            <button class="btn btn-primary" onclick="submitBlacklist()">添加</button>
+        </div>
+    </div>
+</div>
+
+<!-- 按 IP 踢下线弹窗 -->
+<div id="kickIpModal" class="modal-mask">
+    <div class="modal-box">
+        <h3>按 IP 强制踢下线所有连接</h3>
+        <div class="form-group">
+            <label for="kickIp">IP</label>
+            <input type="text" id="kickIp" placeholder="输入要踢下线的 IP（不添加黑名单）">
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-danger" onclick="closeKickIpModal()">取消</button>
+            <button class="btn btn-primary" onclick="submitKickIp()">踢下线</button>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 
 <script>
@@ -645,8 +711,133 @@
             const tab = document.getElementById('tab-' + item.dataset.tab);
             if (tab) tab.classList.add('active');
             if (item.dataset.tab === 'admins') loadAdminUsers();
+            if (item.dataset.tab === 'blacklist') { loadBlacklist(); checkMyIp(); }
         });
     });
+
+    // ============ 黑名单 ============
+    function checkMyIp() {
+        httpPost('/blacklist/checkMe', {}).then(data => {
+            const el = document.getElementById('myIpInfo');
+            if (!el) return;
+            el.innerHTML = 'IP: ' + (data && data.ip ? data.ip : '-') + '，' + (data && data.black ? '已被加入黑名单 ❌' : '正常 ✅');
+        }).catch(() => {});
+    }
+    function loadBlacklist() {
+        httpPost('/blacklist/list', {}).then(data => {
+            if (!data || !data.success) {
+                showMessage('blacklistMessage', (data && data.message) || '加载失败', false);
+                renderBlacklist([]);
+                return;
+            }
+            renderBlacklist(Array.isArray(data.list) ? data.list : []);
+        }).catch(err => {
+            console.error(err);
+            showMessage('blacklistMessage', '加载失败', false);
+        });
+    }
+    function renderBlacklist(list) {
+        const tbody = document.querySelector('#blacklistTable tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        if (!list || list.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5; td.style.textAlign = 'center'; td.style.color = '#999'; td.style.padding = '20px';
+            td.textContent = '暂无黑名单记录';
+            tr.appendChild(td); tbody.appendChild(tr);
+            return;
+        }
+        list.forEach(item => {
+            const tr = document.createElement('tr');
+            const td0 = document.createElement('td'); td0.textContent = item.id != null ? item.id : '-';
+            const td1 = document.createElement('td'); td1.textContent = item.ip || '-'; td1.style.fontFamily = 'Consolas, monospace';
+            const td2 = document.createElement('td'); td2.textContent = item.remark || '-';
+            const td3 = document.createElement('td');
+            if (item.createTime != null && !isNaN(item.createTime)) {
+                const d = new Date(item.createTime);
+                td3.textContent = d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+            } else { td3.textContent = '-'; }
+            const td4 = document.createElement('td');
+            const del = document.createElement('button');
+            del.className = 'btn btn-danger btn-sm'; del.textContent = '移除';
+            del.onclick = () => removeBlacklist(item.id);
+            td4.appendChild(del);
+            tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+            tbody.appendChild(tr);
+        });
+    }
+    function openBlacklistModal() {
+        document.getElementById('blacklistModal').classList.add('show');
+    }
+    function closeBlacklistModal() {
+        document.getElementById('blacklistModal').classList.remove('show');
+    }
+    function submitBlacklist() {
+        const ip = document.getElementById('blacklistIp').value.trim();
+        const remark = document.getElementById('blacklistRemark').value.trim();
+        if (!ip) { showMessage('blacklistMessage', 'IP 不能为空', false); return; }
+        httpPost('/blacklist/add', { ip: ip, remark: remark }).then(data => {
+            if (data && data.success) {
+                showMessage('blacklistMessage', '添加成功：' + (data.message || ''), true);
+                closeBlacklistModal();
+                document.getElementById('blacklistIp').value = '';
+                document.getElementById('blacklistRemark').value = '';
+                loadBlacklist();
+            } else {
+                showMessage('blacklistMessage', (data && data.message) || '添加失败', false);
+            }
+        }).catch(err => {
+            console.error(err);
+            showMessage('blacklistMessage', '请求失败', false);
+        });
+    }
+    function removeBlacklist(id) {
+        if (!confirm('确定要移除该黑名单记录吗？')) return;
+        httpPost('/blacklist/remove', { id: id }).then(data => {
+            if (data && data.success) {
+                showMessage('blacklistMessage', (data.message || '已移除'), true);
+                loadBlacklist();
+            } else {
+                showMessage('blacklistMessage', (data && data.message) || '移除失败', false);
+            }
+        }).catch(err => {
+            console.error(err);
+            showMessage('blacklistMessage', '请求失败', false);
+        });
+    }
+    function kickIpModal() {
+        document.getElementById('kickIpModal').classList.add('show');
+    }
+    function closeKickIpModal() {
+        document.getElementById('kickIpModal').classList.remove('show');
+    }
+    function submitKickIp() {
+        const ip = document.getElementById('kickIp').value.trim();
+        if (!ip) { showMessage('blacklistMessage', 'IP 不能为空', false); return; }
+        httpPost('/blacklist/kickByIp', { ip: ip }).then(data => {
+            if (data && data.success) {
+                showMessage('blacklistMessage', (data.message || '已处理') + '，下线连接数：' + (data.kickedCount != null ? data.kickedCount : 0), true);
+                closeKickIpModal();
+                document.getElementById('kickIp').value = '';
+            } else {
+                showMessage('blacklistMessage', (data && data.message) || '操作失败', false);
+            }
+        }).catch(err => {
+            console.error(err);
+            showMessage('blacklistMessage', '请求失败', false);
+        });
+    }
+    function reloadBlacklist() {
+        if (!confirm('确定重新从数据库加载黑名单到内存？')) return;
+        httpPost('/blacklist/reload', {}).then(data => {
+            showMessage('blacklistMessage', (data && data.message) || '已重新加载', true);
+            loadBlacklist();
+        }).catch(err => {
+            console.error(err);
+            showMessage('blacklistMessage', '请求失败', false);
+        });
+    }
 
     // ============ 房间模块：状态 + 在线时长定时器 ============
     const roomState = {};

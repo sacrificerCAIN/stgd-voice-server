@@ -4,11 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.stgd.voice.util.JsonUtil;
 import com.stgd.voice.entity.Message;
 import com.stgd.voice.server.component.ConnectManager;
+import com.stgd.voice.server.component.IpBlacklistManager;
 import com.stgd.voice.service.publish.impl.strategy.factory.MessageStrategyFactory;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelId;
 import io.netty.channel.SimpleChannelInboundHandler;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 
 /**
@@ -17,13 +19,20 @@ import org.springframework.stereotype.Component;
 @Component
 public class TextHandler extends SimpleChannelInboundHandler<String> {
 
-	private final  ConnectManager connectManager;
+	private final ConnectManager connectManager;
 
-	private final  MessageStrategyFactory messageStrategyFactory;
+	private final MessageStrategyFactory messageStrategyFactory;
+
+	@Autowired(required = false)
+	private IpBlacklistManager blacklistManager;
 
 	public TextHandler(ConnectManager connectManager, MessageStrategyFactory messageStrategyFactory) {
 		this.connectManager = connectManager;
 		this.messageStrategyFactory = messageStrategyFactory;
+	}
+
+	private boolean isBlacklisted(ChannelHandlerContext ctx) {
+		return blacklistManager != null && blacklistManager.isBlack(ctx);
 	}
 
 	/**
@@ -36,6 +45,12 @@ public class TextHandler extends SimpleChannelInboundHandler<String> {
 	 **/
 	@Override
 	public void channelActive(ChannelHandlerContext ctx){
+		if (isBlacklisted(ctx)) {
+			String ip = IpBlacklistManager.getChannelIp(ctx.channel());
+			ctx.writeAndFlush("IP " + (ip == null ? "" : ip) + " 已被加入黑名单，连接已被拒绝\n")
+				.addListener(io.netty.channel.ChannelFutureListener.CLOSE);
+			return;
+		}
 		connectManager.addClient(ctx);
 	}
 

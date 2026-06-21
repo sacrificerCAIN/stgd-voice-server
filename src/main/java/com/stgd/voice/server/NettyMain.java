@@ -3,6 +3,7 @@ package com.stgd.voice.server;
 
 import com.stgd.voice.config.ServerConfig;
 import com.stgd.voice.server.component.ConnectManager;
+import com.stgd.voice.server.component.IpBlacklistManager;
 import com.stgd.voice.server.handler.system.IdleEventHandler;
 import com.stgd.voice.server.handler.text.TextHandler;
 import com.stgd.voice.server.handler.voice.VoiceHandler;
@@ -45,11 +46,23 @@ public class NettyMain {
 	@Resource
 	private ConnectManager connectManager;
 	@Resource
+	private IpBlacklistManager blacklistManager;
+	@Resource
 	private MessageStrategyFactory messageStrategyFactory;
 	@Resource
 	private ServerConfig serverConfig;
 	@Resource
 	private SystemLogPublisher logPublisher;
+
+	/** 判断某个远程地址是否属于黑名单。返回 null 表示不拒绝，否则返回拒绝原因。 */
+	private String rejectIfBlacklisted(io.netty.channel.Channel ch) {
+		if (blacklistManager == null) return null;
+		if (blacklistManager.isBlack(ch)) {
+			String ip = IpBlacklistManager.getChannelIp(ch);
+			return "IP " + (ip == null ? "" : ip) + " 已被加入黑名单，连接已被拒绝";
+		}
+		return null;
+	}
 
 	private static int getIdleTimeoutSeconds(ServerConfig serverConfig) {
 		Integer v = serverConfig == null ? null : serverConfig.getIdleTimeoutSeconds();
@@ -68,19 +81,27 @@ public class NettyMain {
 			tcpBootstrap.group(bossGroup, tcpGroup)
 					.channel(NioServerSocketChannel.class)
 					.childHandler(new ChannelInitializer<SocketChannel>() {
-						@Override
-						public void initChannel(SocketChannel ch) {
-							// 读空闲超时：在规定时间内没有收到客户端数据，则由 IdleStateHandler 派发 IdleStateEvent
-							int idleSecs = getIdleTimeoutSeconds(serverConfig);
-							if (idleSecs > 0) {
-								ch.pipeline().addLast("idleState", new IdleStateHandler(idleSecs, 0, 0, TimeUnit.SECONDS));
-								ch.pipeline().addLast("idleHandler", new IdleEventHandler("TCP"));
-							}
-							ch.pipeline().addLast(new StringDecoder(CharsetUtil.UTF_8));
-							ch.pipeline().addLast(new StringEncoder(CharsetUtil.UTF_8));
-							ch.pipeline().addLast(new TextHandler(connectManager, messageStrategyFactory));
+					@Override
+					public void initChannel(SocketChannel ch) {
+						// === 黑名单拦截 ===
+						String reason = rejectIfBlacklisted(ch);
+						if (reason != null) {
+							ch.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer(
+								(reason + "\n").getBytes(CharsetUtil.UTF_8))).addListener(
+									io.netty.channel.ChannelFutureListener.CLOSE);
+							return;
 						}
-					});
+						// 读空闲超时：在规定时间内没有收到客户端数据，则由 IdleStateHandler 派发 IdleStateEvent
+						int idleSecs = getIdleTimeoutSeconds(serverConfig);
+						if (idleSecs > 0) {
+							ch.pipeline().addLast("idleState", new IdleStateHandler(idleSecs, 0, 0, TimeUnit.SECONDS));
+							ch.pipeline().addLast("idleHandler", new IdleEventHandler("TCP"));
+						}
+						ch.pipeline().addLast(new StringDecoder(CharsetUtil.UTF_8));
+						ch.pipeline().addLast(new StringEncoder(CharsetUtil.UTF_8));
+						ch.pipeline().addLast(new TextHandler(connectManager, messageStrategyFactory));
+					}
+				});
 
 			ChannelFuture tcpFuture = null;
 			try {
@@ -100,6 +121,15 @@ public class NettyMain {
 						.childHandler(new ChannelInitializer<SocketChannel>() {
 						@Override
 					public void initChannel(SocketChannel ch) {
+						// === 黑名单拦截：直接返回 403 Forbidden 并关闭连接
+						String reason = rejectIfBlacklisted(ch);
+						if (reason != null) {
+							String resp = "HTTP/1.1 403 Forbidden\r\nContent-Length: " + reason.length() + "\r\nConnection: close\r\n\r\n" + reason;
+							ch.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer(
+								resp.getBytes(CharsetUtil.UTF_8))).addListener(
+									io.netty.channel.ChannelFutureListener.CLOSE);
+							return;
+						}
 						// 读空闲超时：在规定时间内没有收到客户端数据，则由 IdleStateHandler 派发 IdleStateEvent
 						int idleSecs = getIdleTimeoutSeconds(serverConfig);
 						if (idleSecs > 0) {
@@ -113,6 +143,7 @@ public class NettyMain {
 						// - /ws/chat       -> ChatWsHandshaker + WebSocketServerProtocolHandler(/ws/chat) + ChatWsHandler
 						// - /ws/system-log -> WebSocketServerProtocolHandler(/ws/system-log) + SystemLogWsHandler
 						final ChatWsHandler chatHandler = new ChatWsHandler(connectManager);
+						if (blacklistManager != null) chatHandler.setBlacklistManager(blacklistManager);
 						final SystemLogWsHandler logHandler = new SystemLogWsHandler();
 
 						Runnable installChat = () -> {
@@ -160,6 +191,7 @@ public class NettyMain {
 			}
 
 			connectManager.init();
+			if (blacklistManager != null) blacklistManager.init();
 			System.out.println("项目启动成功");
 			String host = (serverConfig.getHost() != null && !serverConfig.getHost().trim().isEmpty())
 					? serverConfig.getHost().trim()

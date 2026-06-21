@@ -3,6 +3,7 @@ import com.stgd.voice.entity.Message;
 import com.stgd.voice.entity.Room;
 import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.server.component.ConnectManager;
+import com.stgd.voice.server.component.IpBlacklistManager;
 import com.stgd.voice.util.JsonUtil;
 import com.stgd.voice.ws.SystemLogPublisher;
 import io.netty.channel.Channel;
@@ -10,7 +11,10 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
+import io.netty.util.AttributeKey;
+import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -27,6 +31,13 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
 
     private final ConnectManager connectManager;
 
+    @Autowired(required = false)
+    private IpBlacklistManager blacklistManager;
+
+    public void setBlacklistManager(IpBlacklistManager m) {
+        this.blacklistManager = m;
+    }
+
     private String wsId;
 
     public ChatWsHandler(ConnectManager connectManager) {
@@ -35,6 +46,16 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
 
     /** 由 ChatWsHandshaker 在协议升级之前调用，完成 wsId 注册。 */
     public void setWsInfo(Channel ch, String wsId) {
+        if (blacklistManager != null && blacklistManager.isBlack(ch)) {
+            String ip = IpBlacklistManager.getChannelIp(ch);
+            Map<String, String> data = new HashMap<>();
+            data.put("type", "system");
+            data.put("payload", "IP " + (ip == null ? "未知IP" : ip) + " 已被加入黑名单");
+            String msg = JsonUtil.toJson(data);
+            ch.writeAndFlush(new TextWebSocketFrame(msg))
+                    .addListener(io.netty.channel.ChannelFutureListener.CLOSE);
+            return;
+        }
         this.wsId = wsId;
         connectManager.addWsChannel(wsId, ch);
     }
