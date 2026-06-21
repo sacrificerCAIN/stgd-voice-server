@@ -321,6 +321,166 @@
 
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
+
+        /* ============ 手机端适配 ============ */
+        @media (max-width: 768px) {
+            body { font-size: 14px; -webkit-tap-highlight-color: transparent; }
+
+            .header {
+                padding: 10px 12px;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .header h1 { font-size: 16px; }
+            .header .header-actions { gap: 6px; }
+            .header button {
+                padding: 8px 12px;
+                font-size: 13px;
+            }
+
+            .main {
+                flex-direction: column;
+                padding: 10px;
+                gap: 10px;
+                min-height: calc(100vh - 64px);
+            }
+
+            /* 侧栏：横向标签 */
+            .sidebar {
+                width: 100% !important;
+                padding: 8px;
+            }
+            .sidebar h2 { display: none; }
+            .sidebar {
+                display: flex;
+                flex-direction: row;
+                gap: 6px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            .sidebar::-webkit-scrollbar { display: none; }
+            .nav-item {
+                flex: 0 0 auto;
+                padding: 10px 14px;
+                margin-bottom: 0;
+                font-size: 14px;
+                white-space: nowrap;
+                border-radius: 20px;
+            }
+
+            .content { width: 100%; gap: 10px; }
+
+            /* 卡片 */
+            .card { padding: 12px; }
+            .card-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+                margin-bottom: 12px;
+            }
+            .card-header h2 { font-size: 16px; }
+
+            /* 按钮更大，便于触控 */
+            .btn {
+                padding: 10px 14px;
+                font-size: 14px;
+                min-height: 40px;
+            }
+            .btn-sm { padding: 8px 12px; font-size: 13px; }
+
+            /* 表格：改为卡片式展示 */
+            table {
+                font-size: 13px;
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                border: 1px solid #eee;
+                border-radius: 6px;
+            }
+            thead { display: none; }
+            tbody, tr, td { display: block; width: 100% !important; }
+            tbody tr {
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                margin-bottom: 8px;
+                padding: 10px 12px;
+                background: #fff;
+            }
+            tbody tr:hover { background: #f5f9ff; }
+            tbody td {
+                border: none;
+                padding: 4px 0;
+                text-align: left;
+            }
+            /* 在每行前显示标签（data-label 由 JS 生成，但我们可以用 nth-child 做简单适配） */
+            td:before {
+                content: attr(data-label);
+                display: inline-block;
+                color: #888;
+                font-size: 12px;
+                margin-right: 8px;
+                min-width: 70px;
+            }
+            #adminTable td:first-child:before { content: 'ID'; }
+            #adminTable td:nth-child(2):before { content: '用户名'; }
+            #adminTable td:nth-child(3):before { content: '操作'; }
+            #roomTable td:first-child:before { content: '展开'; }
+            #roomTable td:nth-child(2):before { content: '名称'; }
+            #roomTable td:nth-child(3):before { content: '人数'; }
+            #roomTable td:nth-child(4):before { content: '操作'; }
+
+            /* 房间展开区 */
+            .room-users-row td {
+                padding: 10px !important;
+            }
+            .user-panel { padding: 8px; }
+            .user-list li {
+                padding: 10px;
+                font-size: 14px;
+            }
+            .toggle-row { cursor: pointer; }
+
+            /* 表单 */
+            input[type=text], input[type=password] {
+                padding: 10px 12px;
+                font-size: 16px; /* 防止 iOS 自动放大 */
+            }
+            label { font-size: 14px; }
+
+            /* 弹窗 */
+            .modal-box {
+                width: calc(100% - 24px);
+                min-width: unset;
+                max-width: calc(100% - 24px);
+                margin: 12px;
+                padding: 16px 18px;
+            }
+            .modal-box h3 { font-size: 16px; }
+            .modal-actions {
+                gap: 6px;
+                justify-content: stretch;
+            }
+            .modal-actions .btn { flex: 1; }
+
+            /* 日志 */
+            #logBox {
+                height: 320px;
+                font-size: 12px;
+            }
+            .log-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .log-status { font-size: 12px; padding: 4px 8px; }
+        }
+
+        @media (max-width: 480px) {
+            .header h1 { font-size: 15px; }
+            .header button { font-size: 12px; padding: 8px 10px; }
+            .nav-item { font-size: 13px; padding: 8px 12px; }
+            .card { padding: 10px; }
+        }
     </style>
 </head>
 <body>

@@ -2,10 +2,10 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>stgd voice</title>
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       font-family: "Microsoft YaHei", Arial, sans-serif;
       margin: 0;
@@ -27,6 +27,9 @@
     }
     .header .user-info {
       font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
     .header .logout-btn {
       background: #ff6b6b;
@@ -35,7 +38,8 @@
       padding: 6px 14px;
       border-radius: 4px;
       cursor: pointer;
-      margin-left: 12px;
+      margin-left: 8px;
+      min-height: 36px;
     }
     .header .dashboard-btn {
       background: #9c27b0;
@@ -44,7 +48,8 @@
       padding: 6px 14px;
       border-radius: 4px;
       cursor: pointer;
-      margin-left: 12px;
+      margin-left: 8px;
+      min-height: 36px;
     }
     .header .dashboard-btn:hover {
       background: #7b1fa2;
@@ -529,6 +534,223 @@
       font-size: 12px;
       color: #888;
       margin-right: 8px;
+    }
+
+    /* ============ 手机端适配 ============ */
+    @media (max-width: 768px) {
+      body { font-size: 14px; }
+
+      .header {
+        padding: 10px 12px;
+      }
+      .header .user-info {
+        font-size: 13px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 4px;
+      }
+      .header .logout-btn,
+      .header .dashboard-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+        margin-left: 4px;
+      }
+
+      .main {
+        flex-direction: column;
+        height: calc(100vh - 64px);
+        padding: 8px;
+        gap: 8px;
+      }
+
+      /* 侧栏：顶部横向标签 + 可滚动 */
+      .sidebar {
+        width: 100% !important;
+        max-height: 280px;
+        padding: 10px;
+        overflow-y: auto;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      }
+      .sidebar h2 {
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
+      .sidebar .status {
+        font-size: 12px;
+      }
+
+      /* 昵称框 */
+      .nickname-box {
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+      }
+      .nickname-box input {
+        font-size: 16px; /* 避免 iOS 自动放大 */
+        padding: 10px;
+      }
+      .nickname-box button {
+        padding: 10px;
+        font-size: 14px;
+        min-height: 42px;
+      }
+
+      /* 设备按钮 */
+      .device-box {
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        gap: 6px;
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+      .device-box .device-btn,
+      .device-box .mic-test-btn {
+        padding: 8px 10px;
+        font-size: 13px;
+        min-height: 40px;
+        flex: 1;
+      }
+
+      /* 房间列表 */
+      #roomList {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .room-list li {
+        padding: 10px;
+        font-size: 14px;
+        min-height: 40px;
+      }
+      .room-list li .room-name { font-size: 14px; }
+      .room-list li .room-count { font-size: 12px; }
+
+      /* 房间用户项 */
+      .room-user-item {
+        padding: 6px 12px 6px 28px !important;
+        font-size: 14px;
+        min-height: 36px;
+      }
+
+      /* 聊天区 */
+      .chat-area {
+        flex: 1;
+        min-height: 0;
+      }
+      .chat-header {
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+
+      .messages {
+        padding: 12px 10px;
+      }
+      .message .meta {
+        font-size: 11px;
+      }
+      .message .content {
+        padding: 8px 12px;
+        font-size: 14px;
+        max-width: 82%;
+      }
+      .message.self .content { background: #4CAF50; color: #fff; }
+
+      /* 语音控制栏 */
+      .voice-control-row {
+        padding: 8px 10px;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .voice-control-row .voice-btn {
+        flex: 1;
+        min-width: 120px;
+        min-height: 42px;
+        font-size: 14px;
+        padding: 8px 14px;
+      }
+
+      /* 消息输入 */
+      .input-area {
+        padding: 8px 10px;
+        gap: 6px;
+        flex-direction: row;
+        align-items: flex-end;
+      }
+      .input-area textarea {
+        padding: 10px;
+        font-size: 14px;
+        height: 44px;
+        min-height: 44px;
+        max-height: 120px;
+        line-height: 1.4;
+      }
+      .input-area button {
+        padding: 10px 14px;
+        min-width: 72px;
+        min-height: 44px;
+        font-size: 14px;
+        flex-shrink: 0;
+      }
+
+      /* 弹窗 */
+      .modal-mask.show {
+        align-items: stretch;
+        padding: 0;
+      }
+      .modal-box {
+        width: 100%;
+        min-width: unset;
+        max-width: 100%;
+        border-radius: 12px 12px 0 0;
+        margin: 0;
+        padding: 16px;
+        max-height: 85vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        align-self: flex-end;
+      }
+      .modal-box h3 {
+        font-size: 16px;
+      }
+      .modal-box label { font-size: 13px; }
+      .modal-box select,
+      .modal-box input[type=text],
+      .modal-box input[type=password] {
+        padding: 10px;
+        font-size: 16px; /* iOS 防放大 */
+      }
+      .modal-box .modal-actions {
+        gap: 8px;
+        justify-content: stretch;
+        margin-top: 16px;
+      }
+      .modal-box .modal-actions button {
+        flex: 1;
+        min-height: 42px;
+        font-size: 14px;
+        padding: 10px 14px;
+      }
+
+      /* 麦克风测试 */
+      .mic-test-box { padding: 12px; }
+      .mic-test-status { font-size: 13px; text-align: center; line-height: 1.5; }
+      .volume-bars-container { gap: 12px; margin-bottom: 10px; }
+      .volume-bar-wrapper { min-width: 60px; }
+      .volume-bar-track { width: 50px; height: 120px; }
+      .mic-test-actions button { padding: 10px 14px; font-size: 14px; min-height: 42px; }
+    }
+
+    @media (max-width: 480px) {
+      .header .logout-btn,
+      .header .dashboard-btn {
+        padding: 5px 8px;
+        font-size: 12px;
+      }
+      .main { padding: 6px; gap: 6px; }
+      .sidebar { padding: 8px; }
+      .messages { padding: 10px 8px; }
+      .message .content { max-width: 88%; font-size: 14px; }
+      .input-area textarea { font-size: 14px; }
+      .chat-header { font-size: 14px; padding: 10px; }
     }
   </style>
 </head>
