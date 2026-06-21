@@ -54,11 +54,41 @@
     .header .dashboard-btn:hover {
       background: #7b1fa2;
     }
+    /* 汉堡菜单按钮 */
+    .hamburger-btn {
+      background: transparent;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      font-size: 22px;
+      line-height: 1;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .hamburger-btn:hover { background: rgba(255,255,255,0.15); }
+
+    /* 侧栏遮罩（移动端） */
+    .sidebar-mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: none;
+      z-index: 50;
+    }
+    .sidebar-mask.show { display: block; }
+
     .main {
       display: flex;
       height: calc(100vh - 56px);
       padding: 16px;
       gap: 16px;
+      position: relative;
     }
     .admin-box {
       margin-bottom: 16px;
@@ -541,7 +571,7 @@
       body { font-size: 14px; }
 
       .header {
-        padding: 10px 12px;
+        padding: 8px 10px;
       }
       .header .user-info {
         font-size: 13px;
@@ -554,22 +584,42 @@
         padding: 6px 10px;
         font-size: 12px;
         margin-left: 4px;
+        min-height: 36px;
+      }
+
+      /* 显示汉堡按钮 */
+      .hamburger-btn {
+        display: flex;
       }
 
       .main {
-        flex-direction: column;
+        flex-direction: row;
         height: calc(100vh - 64px);
         padding: 8px;
         gap: 8px;
       }
 
-      /* 侧栏：顶部横向标签 + 可滚动 */
+      /* 侧栏：从左侧滑出，默认隐藏 */
       .sidebar {
-        width: 100% !important;
-        max-height: 280px;
-        padding: 10px;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 280px !important;
+        max-width: 80vw;
+        max-height: none;
+        height: 100vh;
+        padding: 14px 14px 20px;
+        border-radius: 0;
         overflow-y: auto;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        box-shadow: 2px 0 16px rgba(0,0,0,0.2);
+        transform: translateX(-100%);
+        transition: transform 0.25s ease-out;
+        z-index: 60;
+        -webkit-overflow-scrolling: touch;
+      }
+      .sidebar.show {
+        transform: translateX(0);
       }
       .sidebar h2 {
         font-size: 14px;
@@ -581,8 +631,8 @@
 
       /* 昵称框 */
       .nickname-box {
-        margin-bottom: 10px;
-        padding-bottom: 8px;
+        margin-bottom: 12px;
+        padding-bottom: 10px;
       }
       .nickname-box input {
         font-size: 16px; /* 避免 iOS 自动放大 */
@@ -596,18 +646,18 @@
 
       /* 设备按钮 */
       .device-box {
-        margin-bottom: 10px;
-        padding-bottom: 8px;
+        margin-bottom: 12px;
+        padding-bottom: 10px;
         gap: 6px;
-        flex-direction: row;
-        flex-wrap: wrap;
+        flex-direction: column;
+        flex-wrap: nowrap;
       }
       .device-box .device-btn,
       .device-box .mic-test-btn {
-        padding: 8px 10px;
+        padding: 10px 12px;
         font-size: 13px;
-        min-height: 40px;
-        flex: 1;
+        min-height: 42px;
+        width: 100%;
       }
 
       /* 房间列表 */
@@ -619,22 +669,27 @@
       .room-list li {
         padding: 10px;
         font-size: 14px;
-        min-height: 40px;
+        min-height: 42px;
       }
       .room-list li .room-name { font-size: 14px; }
       .room-list li .room-count { font-size: 12px; }
 
-      /* 房间用户项 */
+      /* 房间用户项：保留较大左缩进，体现层级关系 */
       .room-user-item {
-        padding: 6px 12px 6px 28px !important;
+        padding: 6px 12px 6px 48px !important;
         font-size: 14px;
         min-height: 36px;
+      }
+      /* 房间项本身也稍作缩进调整，保证视觉层次 */
+      .room-list li {
+        padding: 10px 12px;
       }
 
       /* 聊天区 */
       .chat-area {
         flex: 1;
         min-height: 0;
+        width: 100%;
       }
       .chat-header {
         padding: 10px 12px;
@@ -707,6 +762,7 @@
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         align-self: flex-end;
+        z-index: 100;
       }
       .modal-box h3 {
         font-size: 16px;
@@ -756,14 +812,16 @@
 </head>
 <body>
 <div class="header">
+    <button class="hamburger-btn" id="hamburgerBtn" aria-label="菜单">☰</button>
     <div class="user-info">
       <span id="loginUser">-</span>
       <button class="dashboard-btn" id="dashboardBtn" style="display:none;" onclick="gotoDashboard()">控制台</button>
       <button class="logout-btn" onclick="logout()">退出</button>
     </div>
   </div>
+<div class="sidebar-mask" id="sidebarMask"></div>
 <div class="main">
-  <div class="sidebar">
+  <div class="sidebar" id="sidebar">
     <span id="wsStatus" class="status disconnected">未连接</span>
     <div class="nickname-box">
       <h2 style="margin-top:8px">我的昵称</h2>
@@ -1131,8 +1189,8 @@
       //   actions.appendChild(deleteBtn);
       //   li.appendChild(actions);
       // }
-      // 双击整行房间直接加入房间
-      li.addEventListener('dblclick', function(e) {
+      // 单击整行房间直接加入房间
+      li.addEventListener('click', function(e) {
         e.stopPropagation();
         joinRoom(room.id);
       });
@@ -1407,6 +1465,54 @@
   }
 
   init();
+
+  // ============ 汉堡菜单：展开/收起侧栏 ============
+  (function setupHamburger() {
+    const btn = document.getElementById('hamburgerBtn');
+    const sidebar = document.getElementById('sidebar');
+    const mask = document.getElementById('sidebarMask');
+    if (!btn || !sidebar) return;
+
+    function toggleSidebar(force) {
+      const shouldShow = (typeof force === 'boolean') ? force : !sidebar.classList.contains('show');
+      if (shouldShow) {
+        sidebar.classList.add('show');
+        if (mask) mask.classList.add('show');
+      } else {
+        sidebar.classList.remove('show');
+        if (mask) mask.classList.remove('show');
+      }
+    }
+
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      toggleSidebar();
+    });
+
+    if (mask) mask.addEventListener('click', function() { toggleSidebar(false); });
+
+    // 点击房间项后自动关闭侧栏（方便进入房间聊天）
+    sidebar.addEventListener('click', function(e) {
+      const target = e.target;
+      if (target && target.closest && target.closest('#roomList li')) {
+        // 延迟关闭，避免双击事件/动画冲突
+        setTimeout(function() { toggleSidebar(false); }, 250);
+      }
+    });
+
+    // 窗口尺寸变化：若变回 PC 宽度，则清理移动端状态
+    window.addEventListener('resize', function() {
+      if (window.innerWidth > 768) {
+        sidebar.classList.remove('show');
+        if (mask) mask.classList.remove('show');
+      }
+    });
+
+    // ESC 关闭
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') toggleSidebar(false);
+    });
+  })();
 
   // 主动离开当前房间
   function leaveCurrentRoom() {
