@@ -35,7 +35,10 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
         <!-- 仅引入实际使用的 Netty 模块，替换庞大的 netty-all -->
         <dependency>
             <groupId>io.netty</groupId>

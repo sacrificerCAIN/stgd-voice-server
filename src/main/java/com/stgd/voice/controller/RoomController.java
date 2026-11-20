@@ -1,6 +1,7 @@
 package com.stgd.voice.controller;
 
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.stgd.voice.annotation.RequireAdminLogin;
 import com.stgd.voice.model.entity.Room;
 import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.model.vo.RoomVO;
@@ -11,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
@@ -30,31 +30,17 @@ public class RoomController {
 	@Resource
 	private SystemLogPublisher logPublisher;
 
-	/**
-	 * 校验是否为已登录用户。只有登录用户（特别是 super 管理员）可进行房间增删改操作。
-	 */
-	private boolean isNotAdmin(HttpSession session) {
-		if (session == null) return true;
-		String username = (String) session.getAttribute("username");
-		return !StringUtils.isNotBlank(username);
-	}
-
 	@PostMapping("insertRoom")
 	@ResponseBody
-	public Map<String, Object> insertRoom(@RequestBody Room room, HttpServletRequest request) {
+	@RequireAdminLogin
+	public Map<String, Object> insertRoom(@RequestBody Room room) {
 		Map<String, Object> response = new HashMap<>();
-		HttpSession session = request.getSession(false);
-		if (isNotAdmin(session)) {
-			response.put("success", false);
-			response.put("message", "未登录，禁止操作");
-			return response;
-		}
 		int result = roomMapper.insert(room);
 		connectManager.addRoom(room);
 		connectManager.broadcastRoomList();
 		if (result > 0) {
 			logPublisher.publish("room", null, room.getName(),
-				"新增房间 [" + room.getName() + "]");
+					"新增房间 [" + room.getName() + "]");
 			response.put("success", true);
 			response.put("affectedRows", result);
 		} else {
@@ -66,14 +52,9 @@ public class RoomController {
 
 	@PostMapping("removeRoom")
 	@ResponseBody
-	public Map<String, Object> removeRoom(@RequestBody Room room, HttpServletRequest request) {
+	@RequireAdminLogin
+	public Map<String, Object> removeRoom(@RequestBody Room room) {
 		Map<String, Object> response = new HashMap<>();
-		HttpSession session = request.getSession(false);
-		if (isNotAdmin(session)) {
-			response.put("success", false);
-			response.put("message", "未登录，禁止操作");
-			return response;
-		}
 		String removedName = room.getName();
 		connectManager.removeRoom(room.getId());
 		int result = roomMapper.deleteById(room.getId());
@@ -81,7 +62,7 @@ public class RoomController {
 		connectManager.broadcastAllRoomUsers();
 		if (result > 0) {
 			logPublisher.publish("room", null, removedName,
-				"删除房间 [" + (removedName != null ? removedName : "#" + room.getId()) + "]");
+					"删除房间 [" + (removedName != null ? removedName : "#" + room.getId()) + "]");
 			response.put("success", true);
 			response.put("affectedRows", result);
 		} else {
@@ -93,21 +74,16 @@ public class RoomController {
 
 	@PostMapping("updateRoom")
 	@ResponseBody
-	public Map<String, Object> updateRoom(@RequestBody Room room, HttpServletRequest request) {
+	@RequireAdminLogin
+	public Map<String, Object> updateRoom(@RequestBody Room room) {
 		Map<String, Object> response = new HashMap<>();
-		HttpSession session = request.getSession(false);
-		if (isNotAdmin(session)) {
-			response.put("success", false);
-			response.put("message", "未登录，禁止操作");
-			return response;
-		}
 		int result = roomMapper.updateById(room);
-		if (result == 1){
+		if (result == 1) {
 			room.setUserNum(connectManager.findRoomById(room.getId()).getUserNum());
 			connectManager.addRoom(room);
 			connectManager.broadcastRoomList();
 			logPublisher.publish("room", null, room.getName(),
-				"更新房间 [" + room.getName() + "]");
+					"更新房间 [" + room.getName() + "]");
 			response.put("success", true);
 			response.put("affectedRows", result);
 		} else {
@@ -119,33 +95,27 @@ public class RoomController {
 
 	@PostMapping("getAllRoom")
 	@ResponseBody
-	public List<RoomVO> getAllRoom() {
+	@RequireAdminLogin
+	public Map<String, Object> getAllRoom() {
+		Map<String, Object> response = new HashMap<>();
 		List<Room> roomList = connectManager.getAllRoom();
-		return roomList.stream().map(room -> {
+		response.put("success", true);
+		List<RoomVO> voList = roomList.stream().map(room -> {
 			RoomVO vo = new RoomVO();
 			vo.setId(room.getId());
 			vo.setName(room.getName());
 			vo.setUserNum(room.getUserNum());
 			return vo;
 		}).collect(Collectors.toList());
+		response.put("list", voList);
+		return response;
 	}
 
-	/**
-	 * 获取指定房间内的在线用户列表（dashboard 下拉使用）。
-	 * 入参 JSON: { "id": 房间ID }
-	 * 返回: { success, list: [{ userId, userName, ip, firstSeenTs }] }
-	 */
 	@PostMapping("getRoomOnlineUsers")
 	@ResponseBody
-	public Map<String, Object> getRoomOnlineUsers(@RequestBody(required = false) Room room,
-											  HttpServletRequest request) {
+	@RequireAdminLogin
+	public Map<String, Object> getRoomOnlineUsers(@RequestBody(required = false) Room room) {
 		Map<String, Object> response = new HashMap<>();
-		HttpSession session = request.getSession(false);
-		if (isNotAdmin(session)) {
-			response.put("success", false);
-			response.put("message", "未登录，禁止操作");
-			return response;
-		}
 		if (room == null || room.getId() == null) {
 			response.put("success", false);
 			response.put("message", "房间ID不能为空");
@@ -157,22 +127,11 @@ public class RoomController {
 		return response;
 	}
 
-	/**
-	 * 管理员：强制指定用户下线。
-	 * 入参 JSON: { "userId": wsId }
-	 * 返回: { success, message }
-	 */
 	@PostMapping("kickUser")
 	@ResponseBody
-	public Map<String, Object> kickUser(@RequestBody(required = false) Map<String, Object> payload,
-										 HttpServletRequest request) {
+	@RequireAdminLogin
+	public Map<String, Object> kickUser(@RequestBody(required = false) Map<String, Object> payload) {
 		Map<String, Object> response = new HashMap<>();
-		HttpSession session = request.getSession(false);
-		if (isNotAdmin(session)) {
-			response.put("success", false);
-			response.put("message", "未登录，禁止操作");
-			return response;
-		}
 		if (payload == null) {
 			response.put("success", false);
 			response.put("message", "参数不能为空");
