@@ -855,28 +855,32 @@
 
     // ============ 房间模块：列表 + 展开在线用户 ============
     function loadRooms() {
-        httpPost('/room/getAllRoom').then(rooms => {
-            if (!Array.isArray(rooms)) return;
-            cachedRooms = rooms;
-            // 遍历所有房间（无论是否展开）：userNum 变化时清除 users 缓存，保证下次展开时能重新拉取
-            const needLoad = [];
-            for (const room of rooms) {
-                const st = roomState[room.id];
-                if (!st) continue;
-                const oldNum = st.lastKnownUserNum;
-                const newNum = room.userNum || 0;
-                const numChanged = oldNum === undefined || oldNum !== newNum;
-                // users 从未加载（null） 或 用户数变化 → 清空缓存
-                if (st.users === null || numChanged) {
-                    st.users = null;
-                    if (st.open) needLoad.push(room.id);
+        httpPost('/room/getAllRoom').then(data => {
+            if (data && data.success) {
+                const rooms = data.list;
+                cachedRooms = rooms;
+                // 遍历所有房间（无论是否展开）：userNum 变化时清除 users 缓存，保证下次展开时能重新拉取
+                const needLoad = [];
+                for (const room of rooms) {
+                    const st = roomState[room.id];
+                    if (!st) continue;
+                    const oldNum = st.lastKnownUserNum;
+                    const newNum = room.userNum || 0;
+                    const numChanged = oldNum === undefined || oldNum !== newNum;
+                    // users 从未加载（null） 或 用户数变化 → 清空缓存
+                    if (st.users === null || numChanged) {
+                        st.users = null;
+                        if (st.open) needLoad.push(room.id);
+                    }
+                    st.lastKnownUserNum = newNum;
                 }
-                st.lastKnownUserNum = newNum;
-            }
-            renderRoomTable(rooms);
-            // 渲染完成后对展开房间触发异步加载（折叠房间等到下次展开时自动加载）
-            for (const roomId of needLoad) {
-                loadRoomUsers(roomId);
+                renderRoomTable(rooms);
+                // 渲染完成后对展开房间触发异步加载（折叠房间等到下次展开时自动加载）
+                for (const roomId of needLoad) {
+                    loadRoomUsers(roomId);
+                }
+            } else {
+                showMessage('blacklistMessage', (data && data.message) || '操作失败', false);
             }
         }).catch(err => {
             console.error(err);
