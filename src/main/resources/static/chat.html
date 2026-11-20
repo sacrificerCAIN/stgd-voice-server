@@ -1495,6 +1495,7 @@
   }
 
   function logout() {
+    leaveCurrentRoom();
     fetch('/login/logout', { method: 'POST', credentials: 'include' }).finally(() => {
       window.location.href = '/index.html';
     });
