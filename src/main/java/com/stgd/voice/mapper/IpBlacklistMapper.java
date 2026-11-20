@@ -1,7 +1,7 @@
 package com.stgd.voice.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.stgd.voice.entity.IpBlacklist;
+import com.stgd.voice.model.entity.IpBlacklist;
 import org.apache.ibatis.annotations.Mapper;
 
 import java.util.List;

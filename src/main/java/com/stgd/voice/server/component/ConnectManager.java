@@ -1,8 +1,8 @@
 package com.stgd.voice.server.component;
 
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
-import com.stgd.voice.entity.Room;
-import com.stgd.voice.entity.User;
+import com.stgd.voice.model.entity.Room;
+import com.stgd.voice.model.entity.User;
 import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.util.JsonUtil;
 import com.stgd.voice.ws.SystemLogPublisher;

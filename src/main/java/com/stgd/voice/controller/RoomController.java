@@ -1,8 +1,9 @@
 package com.stgd.voice.controller;
 
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
-import com.stgd.voice.entity.Room;
+import com.stgd.voice.model.entity.Room;
 import com.stgd.voice.mapper.RoomMapper;
+import com.stgd.voice.model.vo.RoomVO;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.ws.SystemLogPublisher;
 import org.springframework.stereotype.Controller;
@@ -14,6 +15,7 @@ import javax.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Controller
 @RequestMapping("/room/")
@@ -117,8 +119,15 @@ public class RoomController {
 
 	@PostMapping("getAllRoom")
 	@ResponseBody
-	public List<Room> getAllRoom() {
-        return connectManager.getAllRoom();
+	public List<RoomVO> getAllRoom() {
+		List<Room> roomList = connectManager.getAllRoom();
+		return roomList.stream().map(room -> {
+			RoomVO vo = new RoomVO();
+			vo.setId(room.getId());
+			vo.setName(room.getName());
+			vo.setUserNum(room.getUserNum());
+			return vo;
+		}).collect(Collectors.toList());
 	}
 
 	/**

@@ -1,4 +1,4 @@
-package com.stgd.voice.entity;
+package com.stgd.voice.model.entity;
 
 import lombok.Data;
 

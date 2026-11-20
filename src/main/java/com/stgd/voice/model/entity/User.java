@@ -1,4 +1,4 @@
-package com.stgd.voice.entity;
+package com.stgd.voice.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;

@@ -1,17 +1,14 @@
 package com.stgd.voice.server.handler.ws;
-import com.stgd.voice.entity.Message;
-import com.stgd.voice.entity.Room;
-import com.stgd.voice.mapper.RoomMapper;
+import com.stgd.voice.model.entity.Message;
+import com.stgd.voice.model.entity.Room;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.server.component.IpBlacklistManager;
 import com.stgd.voice.util.JsonUtil;
-import com.stgd.voice.ws.SystemLogPublisher;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
-import io.netty.util.AttributeKey;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.HashMap;

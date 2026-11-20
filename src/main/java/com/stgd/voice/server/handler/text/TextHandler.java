@@ -2,7 +2,7 @@ package com.stgd.voice.server.handler.text;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.stgd.voice.util.JsonUtil;
-import com.stgd.voice.entity.Message;
+import com.stgd.voice.model.entity.Message;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.server.component.IpBlacklistManager;
 import com.stgd.voice.service.publish.impl.strategy.factory.MessageStrategyFactory;
