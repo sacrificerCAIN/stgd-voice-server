@@ -57,10 +57,26 @@ public class ConnectManager {
 			new ThreadPoolExecutor.CallerRunsPolicy()
 	);
 
+	/** 房间状态广播合并窗口（毫秒）：窗口内多次触发只推送一次 */
+	private static final long BROADCAST_MERGE_WINDOW_MS = 150L;
+
+	private static final ScheduledExecutorService BROADCAST_SCHEDULER =
+		Executors.newSingleThreadScheduledExecutor(r -> {
+			Thread t = new Thread(r, "broadcast-scheduler");
+			t.setDaemon(true);
+			return t;
+		});
+
+	private static final AtomicBoolean ROOM_LIST_PENDING = new AtomicBoolean(false);
+	private static final AtomicBoolean ROOM_USERS_PENDING = new AtomicBoolean(false);
+
 	// ============ Netty TCP 客户端 ============
 	private static final ChannelGroup channelGroup = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 
 	private static final ConcurrentHashMap<String, ChannelId> channelWithStringIdMap = new ConcurrentHashMap<>();
+
+	// channelId 字符串 -> Channel（O(1) 查找，避免 DefaultChannelGroup.find 的全量扫描）
+	private static final ConcurrentHashMap<String, Channel> channelStringToChannel = new ConcurrentHashMap<>();
 
 	private static final ConcurrentHashMap<String, User> userMap = new ConcurrentHashMap<>();
 
@@ -101,8 +117,10 @@ public class ConnectManager {
 	}
 
 	public void addClient(ChannelHandlerContext ctx){
+		String channelIdStr = ctx.channel().id().asLongText();
 		channelGroup.add(ctx.channel());
-		channelWithStringIdMap.put(ctx.channel().id().asLongText(), ctx.channel().id());
+		channelWithStringIdMap.put(channelIdStr, ctx.channel().id());
+		channelStringToChannel.put(channelIdStr, ctx.channel());
 	}
 
 	public void removeClient(ChannelHandlerContext ctx){
@@ -128,12 +146,14 @@ public class ConnectManager {
 		}
 		channelGroup.remove(ctx.channel());
 		channelWithStringIdMap.remove(channelIdStr);
+		channelStringToChannel.remove(channelIdStr);
+		// 异常断线时 userMap 可能残留，这里统一清理，避免幽灵用户
+		userMap.remove(channelIdStr);
 		ctx.channel().close();
 	}
 
 	public Channel getChannelByChannelId(String channelIdString){
-		ChannelId channelId = channelWithStringIdMap.get(channelIdString);
-		return channelGroup.find(channelId);
+		return channelStringToChannel.get(channelIdString);
 	}
 
 	public Set<ChannelId> getChannelIdSetByChannelIdStringSet(Set<String> ChannelIdStringSet){
@@ -158,8 +178,8 @@ public class ConnectManager {
 
 	public void addRoom(Room room){
 		if (room == null) return;
+		// 仅更新内存；房间列表广播由增删改入口显式触发，避免入房等场景重复全量广播
 		roomMap.put(room.getId(), room);
-		broadcastRoomList();
 	}
 
 	public void removeRoom(Integer id) {
@@ -169,12 +189,9 @@ public class ConnectManager {
 		if (userIds != null) {
 			// Netty TCP 客户端推送
 			for (String idStr : userIds) {
-				ChannelId channelId = channelWithStringIdMap.get(idStr);
-				if (channelId != null) {
-					Channel ch = channelGroup.find(channelId);
-					if (ch != null && ch.isActive()) {
-						ch.writeAndFlush("[系统]: 管理员解散了[" + room.getName() + "]\n");
-					}
+				Channel ch = channelStringToChannel.get(idStr);
+				if (ch != null && ch.isActive()) {
+					ch.writeAndFlush("[系统]: 管理员解散了[" + room.getName() + "]\n");
 				}
 			}
 			// Netty WebSocket 推送：异步 + 线程池
@@ -213,25 +230,27 @@ public class ConnectManager {
 		return new ArrayList<>(roomMap.values());
 	}
 
+	/** 保证消息以单个换行结尾，兼容调用方传入的 "\n"，避免双换行 */
+	private static String ensureNewline(String s) {
+		if (s == null) return "\n";
+		return s.endsWith("\n") ? s : s + "\n";
+	}
+
 	public void publishOne(ChannelHandlerContext ctx, String s){
-		ctx.channel().writeAndFlush("[服务器]对你说：" + s + "\n");
+		ctx.channel().writeAndFlush("[服务器]对你说：" + ensureNewline(s));
 	}
 
 	public void publishOne(String targetChannelIdString, String s){
-		ChannelId channelId = channelWithStringIdMap.get(targetChannelIdString);
-		Channel channel = channelGroup.find(channelId);
-		if (channelId == null){
+		Channel channel = channelStringToChannel.get(targetChannelIdString);
+		if (channel == null || !channel.isActive()){
 			return;
 		}
-		channel.writeAndFlush("[服务器]对你说：" + s + "\n");
+		channel.writeAndFlush("[服务器]对你说：" + ensureNewline(s));
 	}
 
 	public void publishOne(String sourceChannelIdString, String targetChannelIdString, String s){
-		ChannelId channelId = channelWithStringIdMap.get(targetChannelIdString);
-		Channel channel;
-		try {
-			channel = channelGroup.find(channelId);
-		}catch (NullPointerException e){
+		Channel channel = channelStringToChannel.get(targetChannelIdString);
+		if (channel == null || !channel.isActive()){
 			Channel sourceChannel = getChannelByChannelId(sourceChannelIdString);
 			if (sourceChannel != null){
 				sourceChannel.writeAndFlush("[服务器]对你说：该用户已下线\n");
@@ -252,7 +271,7 @@ public class ConnectManager {
 		}
 
 		if (channel != null){
-			channel.writeAndFlush("[" + sourceUserName + "]对你说：" + s + "\n");
+			channel.writeAndFlush("[" + sourceUserName + "]对你说：" + ensureNewline(s));
 		}
 	}
 
@@ -400,7 +419,8 @@ public class ConnectManager {
 					return;
 				}
 				try {
-					channel.writeAndFlush(new TextWebSocketFrame(msg)).sync();
+					// 异步写入：不阻塞广播线程池；同一 Channel 的写顺序由队列 + 单消费线程保证
+					channel.writeAndFlush(new TextWebSocketFrame(msg));
 				} catch (Exception ignored) {
 					// 发送失败通常意味着连接已断开，退出循环
 					queue.clear();
@@ -555,11 +575,9 @@ public class ConnectManager {
 		String wsText = JsonUtil.toJson(wsJson);
 
 		for (String idStr : room.getUserChannelIdSet()) {
-			// TCP 成员：先尝试作为 Netty channelId 推送
-			ChannelId channelId = channelWithStringIdMap.get(idStr);
-			if (channelId != null) {
-				Channel channel = channelGroup.find(channelId);
-				if (channel != null && channel.isActive()) {
+			Channel channel = channelStringToChannel.get(idStr);
+			if (channel != null) {
+				if (channel.isActive()) {
 					channel.writeAndFlush(tcpText);
 				}
 				continue;
@@ -593,11 +611,9 @@ public class ConnectManager {
 
 		for (String idStr : room.getUserChannelIdSet()) {
 			if (StringUtils.equals(excludeId, idStr)) continue;
-			// TCP 成员
-			ChannelId channelId = channelWithStringIdMap.get(idStr);
-			if (channelId != null) {
-				Channel channel = channelGroup.find(channelId);
-				if (channel != null && channel.isActive()) {
+			Channel channel = channelStringToChannel.get(idStr);
+			if (channel != null) {
+				if (channel.isActive()) {
 					channel.writeAndFlush(tcpText);
 				}
 				continue;
@@ -644,7 +660,23 @@ public class ConnectManager {
 	 *   }
 	 */
 	public void broadcastAllRoomUsers() {
+		// 合并窗口内的多次触发，避免进出房/断线密集时重复构建与推送全量用户树
+		if (!ROOM_USERS_PENDING.compareAndSet(false, true)) return;
+		BROADCAST_SCHEDULER.schedule(() -> {
+			ROOM_USERS_PENDING.set(false);
+			doBroadcastAllRoomUsers();
+		}, BROADCAST_MERGE_WINDOW_MS, TimeUnit.MILLISECONDS);
+	}
+
+	private static void doBroadcastAllRoomUsers() {
 		if (wsChannelMap.isEmpty()) return;
+		String text = buildAllRoomUsersJson();
+		for (String wsId : wsChannelMap.keySet()) {
+			sendToWs(wsId, text);
+		}
+	}
+
+	private static String buildAllRoomUsersJson() {
 		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomUsers");
 		List<Map<String, Object>> roomArr = new ArrayList<>();
@@ -658,7 +690,6 @@ public class ConnectManager {
 			} else {
 				rj.put("hasPassword", "0");
 			}
-
 			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
 			List<Map<String, Object>> userArr = new ArrayList<>();
 			Set<String> ids = room.getUserChannelIdSet();
@@ -676,10 +707,7 @@ public class ConnectManager {
 			roomArr.add(rj);
 		}
 		root.put("rooms", roomArr);
-		String text = JsonUtil.toJson(root);
-		for (String wsId : wsChannelMap.keySet()) {
-			sendToWs(wsId, text);
-		}
+		return JsonUtil.toJson(root);
 	}
 
 	/** 向所有已登录 WebSocket 客户端广播：某用户加入了某房间 */
@@ -810,7 +838,28 @@ public class ConnectManager {
 	 *   }
 	 */
 	public void broadcastRoomList() {
+		// 合并窗口内的多次触发，避免增删改房的连环调用重复构建与推送
+		if (!ROOM_LIST_PENDING.compareAndSet(false, true)) return;
+		BROADCAST_SCHEDULER.schedule(() -> {
+			ROOM_LIST_PENDING.set(false);
+			doBroadcastRoomList();
+		}, BROADCAST_MERGE_WINDOW_MS, TimeUnit.MILLISECONDS);
+	}
+
+	private static void doBroadcastRoomList() {
 		if (wsChannelMap.isEmpty()) return;
+		final String text = buildRoomListJson();
+		// 提交到异步线程池，通过 Netty writeAndFlush 推送
+		BROADCAST_EXECUTOR.submit(() -> {
+			for (Channel ch : wsChannelMap.values()) {
+				if (ch != null && ch.isActive()) {
+					ch.writeAndFlush(new TextWebSocketFrame(text));
+				}
+			}
+		});
+	}
+
+	private static String buildRoomListJson() {
 		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomList");
 		List<Map<String, Object>> roomArr = new ArrayList<>();
@@ -828,14 +877,13 @@ public class ConnectManager {
 			roomArr.add(rj);
 		}
 		root.put("rooms", roomArr);
-		final String text = JsonUtil.toJson(root);
-		// 提交到异步线程池，通过 Netty writeAndFlush 推送
-		BROADCAST_EXECUTOR.submit(() -> {
-			for (Channel ch : wsChannelMap.values()) {
-				if (ch != null && ch.isActive()) {
-					ch.writeAndFlush(new TextWebSocketFrame(text));
-				}
-			}
-		});
+		return JsonUtil.toJson(root);
+	}
+
+	/** 向单个 WebSocket 客户端发送一次全量房间状态（握手时使用，避免向全员广播） */
+	public void sendRoomStateToOne(String wsId) {
+		if (wsId == null || !wsChannelMap.containsKey(wsId)) return;
+		sendWsOne(wsId, buildRoomListJson());
+		sendWsOne(wsId, buildAllRoomUsersJson());
 	}
 }
