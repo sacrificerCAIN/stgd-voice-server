@@ -28,10 +28,16 @@ public class LogoutMessageStrategyImpl implements MessagePublishStrategy {
 
 		if (message.getRoomId() != null){
 			Room room = connectManager.findRoomById(message.getRoomId());
-			room.removeUser(ctx.channel().id());
-			if (room != null && userName != null) {
-				logPublisher.publish("leave", userName, room.getName(),
-					userName + " 离开房间 [" + room.getName() + "]");
+			if (room != null) {
+				room.removeUser(ctx.channel().id());
+				// 通知房间内剩余成员（TCP + WebSocket）
+				connectManager.publishRoomSystemWs(message.getRoomId(),
+					(userName != null ? userName : "某用户") + " 离开了房间",
+					ctx.channel().id().asLongText());
+				if (userName != null) {
+					logPublisher.publish("leave", userName, room.getName(),
+						userName + " 离开房间 [" + room.getName() + "]");
+				}
 			}
 		}
 		connectManager.removeUser(ctx.channel().id());

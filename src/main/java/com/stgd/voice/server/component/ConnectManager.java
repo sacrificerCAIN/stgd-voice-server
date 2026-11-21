@@ -107,8 +107,28 @@ public class ConnectManager {
 	}
 
 	public void removeClient(ChannelHandlerContext ctx){
+		String channelIdStr = ctx.channel().id().asLongText();
+		// TCP 连接断开（含空闲超时、异常断网）：退出所在房间并通知房间内其他成员
+		User user = userMap.get(channelIdStr);
+		String userName = (user != null) ? user.getName() : null;
+		boolean roomChanged = false;
+		for (Room room : roomMap.values()) {
+			if (room == null || !room.getUserChannelIdSet().contains(channelIdStr)) continue;
+			room.removeUser(channelIdStr);
+			roomChanged = true;
+			if (userName != null) {
+				publishRoomSystemWs(room.getId(), userName + " 离开了房间", channelIdStr);
+				if (logPublisher != null) {
+					logPublisher.publish("leave", userName, room.getName(),
+						userName + " 离开房间 [" + room.getName() + "]");
+				}
+			}
+		}
+		if (roomChanged) {
+			broadcastAllRoomUsers();
+		}
 		channelGroup.remove(ctx.channel());
-		channelWithStringIdMap.remove(ctx.channel().id().asLongText());
+		channelWithStringIdMap.remove(channelIdStr);
 		ctx.channel().close();
 	}
 
@@ -503,52 +523,65 @@ public class ConnectManager {
 	// ==================== 统一的房间消息推送（TCP + WebSocket） ====================
 
 	/**
-	 * 向房间内所有成员发送一条聊天消息。
+	 * 向房间内所有成员发送一条聊天消息（TCP 与 WebSocket 双通道）。
 	 * - TCP 客户端收到: [userName]: payload
-	 * - WebSocket 客户端收到: {"type":"room","userName":"...","payload":"...","roomId":...}
+	 * - WebSocket 客户端收到: {"type":"room","roomId":...,"wsId":...,"userName":"...","payload":"...","timestamp":...}
+	 *
+	 * senderWsId 为发送者的 wsId；TCP 客户端发送时传 null。
 	 */
 	public void publishRoomMessage(Integer roomId, String userName, String payload) {
-		if (roomId == null) return;
-		Room room = roomMap.get(roomId);
-		if (room == null) return;
-
-		String nettyText = "[" + (userName == null ? "未知" : userName) + "]: " + (payload == null ? "" : payload) + "\n";
-
-		for (String idStr : room.getUserChannelIdSet()) {
-			// 先尝试作为 Netty channelId 推送
-			ChannelId channelId = channelWithStringIdMap.get(idStr);
-			if (channelId != null) {
-				Channel channel = channelGroup.find(channelId);
-				if (channel != null && channel.isActive()) {
-					channel.writeAndFlush(nettyText);
-                }
-			}
-		}
+		publishRoomMessageToAll(roomId, userName, payload, null);
 	}
 
 	public void publishRoomMessageWs(Integer roomId, String userName, String payload, String wsId) {
+		publishRoomMessageToAll(roomId, userName, payload, wsId);
+	}
+
+	/** 同一条房间消息同时推送给房间内的 TCP 与 WebSocket 成员 */
+	private void publishRoomMessageToAll(Integer roomId, String userName, String payload, String senderWsId) {
 		if (roomId == null) return;
 		Room room = roomMap.get(roomId);
 		if (room == null) return;
+
+		String safeName = (userName == null) ? "未知" : userName;
+		String safePayload = (payload == null) ? "" : payload;
+		String tcpText = "[" + safeName + "]: " + safePayload + "\n";
 
 		Map<String, Object> wsJson = JsonUtil.newMap();
 		wsJson.put("type", "room");
 		wsJson.put("roomId", roomId);
-		wsJson.put("wsId", wsId);
-		wsJson.put("userName", userName);
-		wsJson.put("payload", payload);
+		wsJson.put("wsId", senderWsId);
+		wsJson.put("userName", safeName);
+		wsJson.put("payload", safePayload);
 		wsJson.put("timestamp", System.currentTimeMillis());
 		String wsText = JsonUtil.toJson(wsJson);
 
-		// 通过统一的 sendToWs 推送，保证每个 Channel 串行发送
 		for (String idStr : room.getUserChannelIdSet()) {
-			if (wsChannelMap.containsKey(idStr)) {
+			// TCP 成员：先尝试作为 Netty channelId 推送
+			ChannelId channelId = channelWithStringIdMap.get(idStr);
+			if (channelId != null) {
+				Channel channel = channelGroup.find(channelId);
+				if (channel != null && channel.isActive()) {
+					channel.writeAndFlush(tcpText);
+				}
+				continue;
+			}
+			// WebSocket 成员：走统一入口，保证每个 Channel 串行发送
+			Channel wsChannel = wsChannelMap.get(idStr);
+			if (wsChannel != null && wsChannel.isActive()) {
 				sendToWs(idStr, wsText);
 			}
 		}
 	}
 
-	public void publishRoomSystemWs(Integer roomId, String text, String wsId) {
+	/**
+	 * 向房间内的 TCP 与 WebSocket 成员推送系统提示（如 xxx 加入/离开了房间）。
+	 * - TCP 客户端收到: [系统]: text
+	 * - WebSocket 客户端收到: {"type":"system","payload":"...","timestamp":...}
+	 *
+	 * excludeId 为触发提示的成员 id（wsId 或 TCP channelId），不为空时不发给该成员。
+	 */
+	public void publishRoomSystemWs(Integer roomId, String text, String excludeId) {
 		if (roomId == null || text == null) return;
 		Room room = roomMap.get(roomId);
 		if (room == null) return;
@@ -558,11 +591,24 @@ public class ConnectManager {
 		wsJson.put("payload", text);
 		wsJson.put("timestamp", System.currentTimeMillis());
 		String wsText = JsonUtil.toJson(wsJson);
+		String tcpText = "[系统]: " + text + "\n";
 
 		for (String idStr : room.getUserChannelIdSet()) {
-			if (!wsChannelMap.containsKey(idStr)) continue;
-			if (StringUtils.equals(wsId, idStr)) continue;
-			sendToWs(idStr, wsText);
+			if (StringUtils.equals(excludeId, idStr)) continue;
+			// TCP 成员
+			ChannelId channelId = channelWithStringIdMap.get(idStr);
+			if (channelId != null) {
+				Channel channel = channelGroup.find(channelId);
+				if (channel != null && channel.isActive()) {
+					channel.writeAndFlush(tcpText);
+				}
+				continue;
+			}
+			// WebSocket 成员
+			Channel wsChannel = wsChannelMap.get(idStr);
+			if (wsChannel != null && wsChannel.isActive()) {
+				sendToWs(idStr, wsText);
+			}
 		}
 	}
 
