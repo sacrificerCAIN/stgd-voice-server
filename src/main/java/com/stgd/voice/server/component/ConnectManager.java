@@ -1,9 +1,9 @@
 package com.stgd.voice.server.component;
 
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.model.entity.Room;
 import com.stgd.voice.model.entity.User;
-import com.stgd.voice.mapper.RoomMapper;
 import com.stgd.voice.util.JsonUtil;
 import com.stgd.voice.ws.SystemLogPublisher;
 import io.netty.channel.Channel;
@@ -15,6 +15,7 @@ import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
 import java.util.*;
@@ -120,6 +121,7 @@ public class ConnectManager {
 	@Resource
 	private SystemLogPublisher logPublisher;
 
+	@PostConstruct
 	public void init(){
 		System.out.println("正在初始化房间...");
 		//加载所有房间到内存
