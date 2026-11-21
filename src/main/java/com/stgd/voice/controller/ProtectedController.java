@@ -18,7 +18,9 @@ public class ProtectedController {
 		HttpSession session = request.getSession(false);
 		Map<String, Object> response = new HashMap<>();
 
-		if (session == null) {
+		// 仅存在会话不够：游客的空会话也会存在，必须要求会话中已写入登录用户名
+		String username = (session == null) ? null : (String) session.getAttribute("username");
+		if (username == null || username.trim().isEmpty()) {
 			response.put("error", "未授权访问");
 			return response;
 		}

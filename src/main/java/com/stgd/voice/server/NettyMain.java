@@ -4,11 +4,13 @@ package com.stgd.voice.server;
 import com.stgd.voice.config.ServerConfig;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.server.component.IpBlacklistManager;
+import com.stgd.voice.server.component.SystemLogSessionRegistry;
 import com.stgd.voice.server.handler.system.IdleEventHandler;
 import com.stgd.voice.server.handler.text.TextHandler;
 import com.stgd.voice.server.handler.voice.VoiceHandler;
 import com.stgd.voice.server.handler.ws.ChatWsHandler;
 import com.stgd.voice.server.handler.ws.ChatWsHandshaker;
+import com.stgd.voice.server.handler.ws.SystemLogAuthHandler;
 import com.stgd.voice.server.handler.ws.SystemLogWsHandler;
 import com.stgd.voice.server.handler.ws.WebSocketPathRouter;
 import com.stgd.voice.service.publish.impl.strategy.factory.MessageStrategyFactory;
@@ -53,6 +55,8 @@ public class NettyMain {
 	private ServerConfig serverConfig;
 	@Resource
 	private SystemLogEndpoint systemLogEndpoint;
+	@Resource
+	private SystemLogSessionRegistry systemLogSessionRegistry;
 
 	/** 服务端 Channel（TCP/WS/UDP 监听套接字），关停时先关闭它们停止接入新连接 */
 	private final List<Channel> serverChannels = new ArrayList<>();
@@ -163,6 +167,8 @@ public class NettyMain {
 							ch.pipeline().addLast(chatHandler);
 						};
 						Runnable installLog = () -> {
+							// 系统日志仅允许已登录用户订阅：在协议升级前校验握手 Cookie 中的 JSESSIONID
+							ch.pipeline().addLast(new SystemLogAuthHandler(systemLogSessionRegistry));
 							ch.pipeline().addLast(new WebSocketServerProtocolHandler("/ws/system-log", true));
 							ch.pipeline().addLast(logHandler);
 						};

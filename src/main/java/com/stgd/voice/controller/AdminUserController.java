@@ -3,6 +3,7 @@ package com.stgd.voice.controller;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.stgd.voice.model.entity.AdminUser;
 import com.stgd.voice.mapper.AdminUserMapper;
+import com.stgd.voice.server.component.SystemLogSessionRegistry;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -19,6 +20,10 @@ public class AdminUserController {
 
 	@Resource
 	private AdminUserMapper adminUserMapper;
+
+	/** 登录会话登记表：供 /ws/system-log 握手鉴权使用 */
+	@Resource
+	private SystemLogSessionRegistry logSessionRegistry;
 
 	/** 校验是否不是 super 管理员。未登录或非 super 账号返回 true，需拒绝操作。 */
 	private boolean isNotSuper(HttpSession session) {
@@ -145,6 +150,7 @@ public class AdminUserController {
 			session.setAttribute("username", loginUser.getUsername());
 			// 显式设置3天过期(可选，因为已在配置中设置)
 			session.setMaxInactiveInterval(259200);
+			logSessionRegistry.register(session);
 			response.put("code", 1);
 			response.put("username", loginUser.getUsername());
 			return response;
@@ -161,12 +167,14 @@ public class AdminUserController {
 		Map<String, Object> response = new HashMap<>();
 		HttpSession session = request.getSession(false);
 
-		if (session != null) {
+		String username = (session == null) ? null : (String) session.getAttribute("username");
+		if (StringUtils.isNotBlank(username)) {
 			// 每次检查会话时刷新过期时间
 			session.setMaxInactiveInterval(259200);
 			response.put("isAuthenticated", true);
 			response.put("id", session.getAttribute("id"));
 		} else {
+			// 没有会话或存在空会话（如游客）一律视为未登录
 			response.put("isAuthenticated", false);
 		}
 
@@ -179,7 +187,9 @@ public class AdminUserController {
 		HttpSession session = request.getSession(false);
 
 		if (session != null) {
+			String sessionId = session.getId();
 			session.invalidate();
+			logSessionRegistry.unregister(sessionId);
 			response.put("success", true);
 			response.put("message", "登出成功");
 		} else {

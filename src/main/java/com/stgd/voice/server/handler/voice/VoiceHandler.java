@@ -14,7 +14,7 @@ public class VoiceHandler extends SimpleChannelInboundHandler<DatagramPacket> {
 	protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket packet) {
 		ByteBuf content = packet.content();
 		String data = content.toString(CharsetUtil.UTF_8);
-		System.out.println("收到来自 " + packet.sender() + " 的语音数据: " + data);
+//		System.out.println("收到来自 " + packet.sender() + " 的语音数据: " + data);
 		// 根据需要处理语音数据
 	}
 }

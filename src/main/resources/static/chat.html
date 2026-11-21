@@ -1174,8 +1174,8 @@
               (room.hasPassword === '1'
                       ? '<span class="lock-icon">🔒</span>'
                       : '<span class="lock-placeholder"></span>') +
-              (room.name || '房间' + room.id) +
-              '</span>'
+              escapeHtml(room.name || ('房间' + room.id)) +
+              '</span>' +
               '</span>' +
               '<span class="room-count">' + (room.userNum || 0) + '人</span>';
       li.appendChild(header);

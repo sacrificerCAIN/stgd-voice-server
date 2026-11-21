@@ -3,6 +3,7 @@ package com.stgd.voice.controller;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.stgd.voice.model.entity.AdminUser;
 import com.stgd.voice.mapper.AdminUserMapper;
+import com.stgd.voice.server.component.SystemLogSessionRegistry;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -18,6 +19,10 @@ public class LoginController {
 	@Resource
 	private AdminUserMapper adminUserMapper;
 
+	/** 登录会话登记表：供 /ws/system-log 握手鉴权使用 */
+	@Resource
+	private SystemLogSessionRegistry logSessionRegistry;
+
 	@RequestMapping("login")
 	@ResponseBody
 	public Map<String, Object> login(@RequestBody AdminUser adminUser,
@@ -32,6 +37,7 @@ public class LoginController {
 			session.setAttribute("username", loginUser.getUsername());
 			// 显式设置3天过期(可选，因为已在配置中设置)
 			session.setMaxInactiveInterval(259200);
+			logSessionRegistry.register(session);
 			response.put("code", 1);
 			response.put("username", loginUser.getUsername());
 			return response;
@@ -68,10 +74,9 @@ public class LoginController {
 				response.put("isAdmin", false);
 			}
 		} else {
-			// 未登录：创建一个新 session，以便前端能正常使用 chat 功能
-			HttpSession newSession = request.getSession(true);
+			// 未登录：不创建空会话，空会话不能作为任何接口的授权依据（聊天页的 wsId 由服务端在握手时生成）
 			response.put("isAuthenticated", false);
-			response.put("sessionId", newSession.getId());
+			response.put("sessionId", null);
 			response.put("username", null);
 			response.put("isAdmin", false);
 		}
@@ -85,7 +90,9 @@ public class LoginController {
 		HttpSession session = request.getSession(false);
 
 		if (session != null) {
+			String sessionId = session.getId();
 			session.invalidate();
+			logSessionRegistry.unregister(sessionId);
 			response.put("success", true);
 			response.put("message", "登出成功");
 		} else {

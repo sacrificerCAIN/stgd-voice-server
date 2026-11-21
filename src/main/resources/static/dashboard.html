@@ -685,6 +685,16 @@
         el.className = 'msg-bar ' + (ok ? 'success' : 'error');
         setTimeout(() => { el.style.display = 'none'; }, 2500);
     }
+    // HTML 转义，防止将服务端返回的房间名/昵称/备注直接拼入 innerHTML 造成 XSS
+    function escapeHtml(str) {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
     function sha256(m) { return CryptoJS.SHA256(m).toString(CryptoJS.enc.Hex); }
     function pad2(n) { return n < 10 ? '0' + n : '' + n; }
     function formatDuration(ms) {
@@ -729,7 +739,7 @@
         httpPost('/blacklist/checkMe', {}).then(data => {
             const el = document.getElementById('myIpInfo');
             if (!el) return;
-            el.innerHTML = 'IP: ' + (data && data.ip ? data.ip : '-') + '，' + (data && data.black ? '已被加入黑名单 ❌' : '正常 ✅');
+            el.innerHTML = 'IP: ' + escapeHtml((data && data.ip) ? data.ip : '-') + '，' + (data && data.black ? '已被加入黑名单 ❌' : '正常 ✅');
         }).catch(() => {});
     }
     function loadBlacklist() {
@@ -914,7 +924,7 @@
 
             const td1 = document.createElement('td');
             const lock = (room.password && room.password !== '') ? '🔒 ' : '';
-            td1.innerHTML = '<span class="room-name">' + lock + room.name + '</span>';
+            td1.innerHTML = '<span class="room-name">' + lock + escapeHtml(room.name || '') + '</span>';
             tr.appendChild(td1);
 
             const td2 = document.createElement('td');
@@ -956,7 +966,7 @@
                 userTd.colSpan = 4;
                 const panel = document.createElement('div');
                 panel.className = 'user-panel';
-                panel.innerHTML = '<div class="user-panel-header"><span class="title">在线用户 - ' + room.name + '</span></div>';
+                panel.innerHTML = '<div class="user-panel-header"><span class="title">在线用户 - ' + escapeHtml(room.name || '') + '</span></div>';
 
                 if (state.loading && !state.users) {
                     panel.innerHTML += '<div class="user-empty">加载中...</div>';
@@ -975,8 +985,8 @@
                         const firstTs = parseInt(u.firstSeenTs || '0', 10);
                         const info = document.createElement('div');
                         info.className = 'user-info';
-                        info.innerHTML = '<span class="u-name">👤 ' + (u.userName || u.userId || '匿名') + '</span>'
-                            + '<span class="u-meta">IP: ' + (u.ip || '-') + '</span>';
+                        info.innerHTML = '<span class="u-name">👤 ' + escapeHtml(u.userName || u.userId || '匿名') + '</span>'
+                            + '<span class="u-meta">IP: ' + escapeHtml(u.ip || '-') + '</span>';
                         const right = document.createElement('div');
                         right.style.display = 'flex'; right.style.alignItems = 'center'; right.style.gap = '10px';
                         const dur = document.createElement('span');
