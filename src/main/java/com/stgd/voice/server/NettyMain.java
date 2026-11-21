@@ -202,7 +202,6 @@ public class NettyMain {
 				throw e;
 			}
 
-			connectManager.init();
 			if (blacklistManager != null) blacklistManager.init();
 			System.out.println("项目启动成功");
 			String host = (serverConfig.getHost() != null && !serverConfig.getHost().trim().isEmpty())
