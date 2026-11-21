@@ -70,8 +70,8 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         if (this.wsId != null) {
+            // removeWsChannel 内部已广播 userLeft 增量事件，无需再做全员全量广播
             connectManager.removeWsChannel(this.wsId);
-            connectManager.broadcastAllRoomUsers();
         }
     }
 
@@ -165,7 +165,7 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
         resp.put("roomName", room.getName());
         resp.put("userNum", room.getUserNum());
         sendJson(ctx, resp);
-        connectManager.broadcastAllRoomUsers();
+        // joinWsRoom 内部已广播 userJoined 增量事件，无需再做全员全量广播
     }
 
     private void handleRoomMessage(ChannelHandlerContext ctx, Message message) {
@@ -226,17 +226,19 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
 
     private void handleLogout() {
         if (this.wsId != null) {
+            // removeWsChannel 内部已广播 userLeft 增量事件，无需再做全员全量广播
             connectManager.removeWsChannel(this.wsId);
-            connectManager.broadcastAllRoomUsers();
         }
     }
 
     private void handleGetAllRoomUsers() {
-        connectManager.broadcastAllRoomUsers();
+        // 只回给发起请求的客户端，避免单个查询被放大为全员全量广播
+        connectManager.sendRoomUsersToOne(this.wsId);
     }
 
     private void handleGetRoomList() {
-        connectManager.broadcastRoomList();
+        // 只回给发起请求的客户端，避免单个查询被放大为全员全量广播
+        connectManager.sendRoomListToOne(this.wsId);
     }
 
     private void sendSystem(ChannelHandlerContext ctx, String text) {

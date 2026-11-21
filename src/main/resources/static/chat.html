@@ -933,6 +933,8 @@
   let hasTriggerUnload = false;
   // 心跳定时器：每30秒发送心跳包，防止服务端读空闲超时踢掉连接
   let heartbeatTimer = null;
+  // 是否被管理员强制下线或 IP 被拉黑：为 true 时停止自动重连
+  let kickedByAdmin = false;
 
   // Cookie工具
   function setCookie(name, value, days = 30) {
@@ -1047,7 +1049,7 @@
   function setWsStatus(status, text) {
     const el = document.getElementById('wsStatus');
     el.className = 'status ' + status;
-    el.textContent = 'websocket状态：' + text;
+    el.textContent = '连接状态：' + text;
   }
 
   function connectChat() {
@@ -1102,15 +1104,23 @@
         // addSystemMessage(event.data);
       }
     };
-    chatSocket.onclose = function() {
+    chatSocket.onclose = function(event) {
       setWsStatus('disconnected', '已断开');
       // 停止心跳定时器
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
         heartbeatTimer = null;
       }
+      // 被管理员踢下线（服务端下发 kicked 标记或 4001 关闭码）：不再自动重连
+      if (kickedByAdmin || (event && event.code === 4001)) {
+        kickedByAdmin = true;
+        setWsStatus('disconnected', '已被强制下线');
+        // addSystemMessage('恭喜你，你已被管理员强制踢下线');
+        return;
+      }
       addSystemMessage('聊天室连接已关闭，3秒后自动重连...');
-      setTimeout(connectChat, 3000);
+      // 重连前先确认本机 IP 是否已被加入黑名单（黑名单握手被拒时只会收到 1006，无法从关闭码区分）
+      setTimeout(checkBlacklistThenReconnect, 3000);
     };
     chatSocket.onerror = function() {
       setWsStatus('disconnected', '连接错误');
@@ -1120,6 +1130,26 @@
         heartbeatTimer = null;
       }
     };
+  }
+
+  // 重连前检查本机 IP 是否已被加入黑名单：命中则停止自动重连，否则正常重连
+  function checkBlacklistThenReconnect() {
+    if (kickedByAdmin) return;
+    fetch('/blacklist/checkMe', { method: 'POST', credentials: 'include' })
+      .then(function(resp) { return resp.json(); })
+      .then(function(result) {
+        if (result && result.black === true) {
+          kickedByAdmin = true;
+          setWsStatus('disconnected', '已断开');
+          addSystemMessage('恭喜你，当前IP已被加入黑名单，如有疑问请联系管理员');
+          return;
+        }
+        connectChat();
+      })
+      .catch(function() {
+        // 检查失败时按普通断线处理，继续重连
+        connectChat();
+      });
   }
 
   function handleServerMessage(data) {
@@ -1147,6 +1177,8 @@
     } else if (type === 'logout') {
       addSystemMessage('已退出');
     } else if (type === 'system') {
+      // 服务端踢下线通知带 kicked: true 标记，标记后关闭连接不再自动重连
+      if (data.kicked === true) kickedByAdmin = true;
       addSystemMessage(data.payload);
     } else if (type === 'room') {
       // 后端 publishRoomMessageWs 放入的字段名是 sessionId（其值实际为发送者的 wsId）

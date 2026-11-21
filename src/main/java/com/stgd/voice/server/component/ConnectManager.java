@@ -7,10 +7,12 @@ import com.stgd.voice.model.entity.User;
 import com.stgd.voice.util.JsonUtil;
 import com.stgd.voice.ws.SystemLogPublisher;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelId;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
+import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import org.springframework.stereotype.Component;
@@ -403,7 +405,6 @@ public class ConnectManager {
 		// 清理该 Channel 的消息队列与写标志
 		wsMessageQueues.remove(wsId);
 		wsWritingFlags.remove(wsId);
-		broadcastAllRoomUsers();
 	}
 
 	/** 查找指定 WebSocket Channel 对应的 wsId（供 handler 内部回查，O(1) 反向映射） */
@@ -521,8 +522,6 @@ public class ConnectManager {
 		if (logPublisher != null) {
 			logPublisher.publish("login", actualName, null, actualName + " 登录系统");
 		}
-		// 刷新在线用户列表
-		broadcastAllRoomUsers();
 		return actualName;
 	}
 
@@ -574,7 +573,6 @@ public class ConnectManager {
 			}
 			broadcastUserJoined(targetRoomId, wsId, userName);
 		}
-		broadcastAllRoomUsers();
 	}
 
 	/** 获取指定 wsId 所在的房间 ID */
@@ -861,14 +859,16 @@ public class ConnectManager {
 		if (wsId == null || !wsChannelMap.containsKey(wsId)) return false;
 		String userName = wsUserMap.get(wsId);
 		Channel ch = wsChannelMap.get(wsId);
-		// 先发送一条下线通知（可选），然后关闭连接
 		try {
 			if (ch != null && ch.isActive()) {
 				Map<String, Object> msg = JsonUtil.newMap();
 				msg.put("type", "system");
 				msg.put("payload", "管理员已将你踢下线");
-				sendToWs(ch, JsonUtil.toJson(msg));
-				ch.close();
+				msg.put("kicked", true);
+				// 直接写出而不是进消息队列：保证通知先于关闭帧发出，不会被 close 吞掉
+				ch.writeAndFlush(new TextWebSocketFrame(JsonUtil.toJson(msg)));
+				ch.writeAndFlush(new CloseWebSocketFrame(4001, "kicked by admin"))
+					.addListener(ChannelFutureListener.CLOSE);
 			}
 		} catch (Exception ignore) {}
 		removeWsChannel(wsId);
@@ -876,7 +876,6 @@ public class ConnectManager {
 			logPublisher.publish("logout", userName,
 				null, (userName == null ? "某用户" : userName) + " 被管理员强制下线");
 		}
-		broadcastAllRoomUsers();
 		return true;
 	}
 
@@ -926,5 +925,17 @@ public class ConnectManager {
 		if (wsId == null || !wsChannelMap.containsKey(wsId)) return;
 		sendWsOne(wsId, buildRoomListJson());
 		sendWsOne(wsId, buildAllRoomUsersJson());
+	}
+
+	/** 向单个客户端补发一次房间-用户快照（客户端主动查询时使用，避免请求放大为全员广播） */
+	public void sendRoomUsersToOne(String wsId) {
+		if (wsId == null || !wsChannelMap.containsKey(wsId)) return;
+		sendWsOne(wsId, buildAllRoomUsersJson());
+	}
+
+	/** 向单个客户端补发一次房间列表快照（客户端主动查询时使用，避免请求放大为全员广播） */
+	public void sendRoomListToOne(String wsId) {
+		if (wsId == null || !wsChannelMap.containsKey(wsId)) return;
+		sendWsOne(wsId, buildRoomListJson());
 	}
 }
