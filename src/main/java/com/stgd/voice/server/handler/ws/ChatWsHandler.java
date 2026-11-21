@@ -77,7 +77,7 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
     @Override
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
         if (evt instanceof WebSocketServerProtocolHandler.HandshakeComplete) {
-            connectManager.broadcastRoomList();
+            connectManager.sendRoomStateToOne(this.wsId);
         }
         ctx.fireUserEventTriggered(evt);
     }
