@@ -15,6 +15,7 @@ import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
 import java.util.*;
 import java.util.concurrent.*;
@@ -40,7 +41,10 @@ public class ConnectManager {
 	public static final int BROADCAST_THREAD_POOL_SIZE = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
 	private static final int BROADCAST_QUEUE_CAPACITY = 10000;
 
-	public static final ExecutorService BROADCAST_EXECUTOR = new ThreadPoolExecutor(
+	/**
+	 * 实例级广播线程池：随 ConnectManager 单例创建，不再作为 static 全局状态。
+	 */
+	private final ExecutorService broadcastExecutor = new ThreadPoolExecutor(
 			BROADCAST_THREAD_POOL_SIZE,
 			BROADCAST_THREAD_POOL_SIZE,
 			0L, TimeUnit.MILLISECONDS,
@@ -57,50 +61,58 @@ public class ConnectManager {
 			new ThreadPoolExecutor.CallerRunsPolicy()
 	);
 
+	/** 优雅关停时等待在途推送完成的超时时间（秒） */
+	private static final long SHUTDOWN_TIMEOUT_SECONDS = 5L;
+
 	/** 房间状态广播合并窗口（毫秒）：窗口内多次触发只推送一次 */
 	private static final long BROADCAST_MERGE_WINDOW_MS = 150L;
 
-	private static final ScheduledExecutorService BROADCAST_SCHEDULER =
+	/**
+	 * 每个 WebSocket 连接待发送队列的容量。
+	 * 慢客户端（TCP 缓冲区写满）来不及消费时，队列不会无限增长；
+	 * 满了之后丢弃最旧的消息，优先保证最新的房间状态/聊天消息送达。
+	 */
+	private static final int WS_QUEUE_CAPACITY = 256;
+
+	private final ScheduledExecutorService broadcastScheduler =
 		Executors.newSingleThreadScheduledExecutor(r -> {
 			Thread t = new Thread(r, "broadcast-scheduler");
 			t.setDaemon(true);
 			return t;
 		});
 
-	private static final AtomicBoolean ROOM_LIST_PENDING = new AtomicBoolean(false);
-	private static final AtomicBoolean ROOM_USERS_PENDING = new AtomicBoolean(false);
+	private final AtomicBoolean roomListPending = new AtomicBoolean(false);
+	private final AtomicBoolean roomUsersPending = new AtomicBoolean(false);
 
 	// ============ Netty TCP 客户端 ============
-	private static final ChannelGroup channelGroup = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
-
-	private static final ConcurrentHashMap<String, ChannelId> channelWithStringIdMap = new ConcurrentHashMap<>();
+	private final ChannelGroup channelGroup = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 
 	// channelId 字符串 -> Channel（O(1) 查找，避免 DefaultChannelGroup.find 的全量扫描）
-	private static final ConcurrentHashMap<String, Channel> channelStringToChannel = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<String, Channel> channelStringToChannel = new ConcurrentHashMap<>();
 
-	private static final ConcurrentHashMap<String, User> userMap = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<String, User> userMap = new ConcurrentHashMap<>();
 
 	// ============ WebSocket 浏览器客户端（使用 Netty WebSocket 实现，替换原来的 javax.websocket） ============
 	// wsId -> Netty Channel（wsId 即为原来的 httpSessionId，由前端传入或后端生成唯一ID）
-	private static final ConcurrentHashMap<String, Channel> wsChannelMap = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<String, Channel> wsChannelMap = new ConcurrentHashMap<>();
 	// Netty Channel -> wsId（反向映射，用于从 Channel 快速反查 wsId，避免 O(n) 遍历）
-	private static final ConcurrentHashMap<Channel, String> channelToWsId = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<Channel, String> channelToWsId = new ConcurrentHashMap<>();
 	// wsId -> 昵称（用户在前端自定义设置）
-	private static final ConcurrentHashMap<String, String> wsUserMap = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<String, String> wsUserMap = new ConcurrentHashMap<>();
 	// wsId -> 当前房间ID（用于离开时清理）
-	private static final ConcurrentHashMap<String, Integer> wsRoomMap = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<String, Integer> wsRoomMap = new ConcurrentHashMap<>();
 	// wsId -> 首次登录时间戳（毫秒），用于展示在线时长
-	private static final ConcurrentHashMap<String, Long> wsFirstSeenMap = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<String, Long> wsFirstSeenMap = new ConcurrentHashMap<>();
 
 
 	// ============ WebSocket 消息推送队列（保证每个 Channel 串行发送，避免并发写入） ============
-	// wsId -> 待发送消息队列（每个 Channel 独立一条队列）
-	private static final ConcurrentHashMap<String, LinkedBlockingQueue<String>> wsMessageQueues = new ConcurrentHashMap<>();
+	// wsId -> 待发送消息队列（每个 Channel 独立一条有界队列，满时丢弃最旧消息）
+	private final ConcurrentHashMap<String, LinkedBlockingQueue<String>> wsMessageQueues = new ConcurrentHashMap<>();
 	// wsId -> 写标志（true = 已有写线程正在消费队列，false = 需要启动新的写线程）
-	private static final ConcurrentHashMap<String, AtomicBoolean> wsWritingFlags = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<String, AtomicBoolean> wsWritingFlags = new ConcurrentHashMap<>();
 
 	// ============ 房间管理 ============
-	private static final ConcurrentHashMap<Integer, Room> roomMap = new ConcurrentHashMap<>();
+	private final ConcurrentHashMap<Integer, Room> roomMap = new ConcurrentHashMap<>();
 
 	@Resource
 	private RoomMapper roomMapper;
@@ -116,10 +128,74 @@ public class ConnectManager {
 		System.out.println("房间初始化完成");
 	}
 
+	/**
+	 * 优雅关停：先停止接收新任务，再等待在途广播发送完成；
+	 * 超时仍未结束才强制中断，避免关停时丢消息或线程泄漏。
+	 */
+	@PreDestroy
+	public void shutdown() {
+		// 1. 先停调度器：让合并窗口内已排队的任务执行完，它们会把手上的广播交给线程池
+		broadcastScheduler.shutdown();
+		try {
+			if (!broadcastScheduler.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+				broadcastScheduler.shutdownNow();
+			}
+		} catch (InterruptedException e) {
+			broadcastScheduler.shutdownNow();
+			Thread.currentThread().interrupt();
+			return;
+		}
+		// 2. 再停线程池：不再接收新任务，等待在途推送全部发出
+		broadcastExecutor.shutdown();
+		try {
+			if (!broadcastExecutor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+				broadcastExecutor.shutdownNow();
+			}
+		} catch (InterruptedException e) {
+			broadcastExecutor.shutdownNow();
+			Thread.currentThread().interrupt();
+		}
+	}
+
+	/** 提交广播任务；返回 false 表示容器正在关停、任务已被丢弃 */
+	private boolean submitBroadcast(Runnable task) {
+		if (broadcastExecutor.isShutdown()) return false;
+		try {
+			broadcastExecutor.submit(task);
+			return true;
+		} catch (RejectedExecutionException ignore) {
+			// 并发关停窗口内被拒绝，直接丢弃
+			return false;
+		}
+	}
+
+	/** 延迟调度合并广播；容器关停后不再接受新调度 */
+	private void scheduleBroadcast(Runnable task) {
+		if (broadcastScheduler.isShutdown()) return;
+		try {
+			broadcastScheduler.schedule(task, BROADCAST_MERGE_WINDOW_MS, TimeUnit.MILLISECONDS);
+		} catch (RejectedExecutionException ignore) {
+			// 并发关停窗口内被拒绝，直接丢弃
+		}
+	}
+
+	/** 关闭所有已建立的连接（容器关停时由 NettyMain 调用） */
+	public void closeAllConnections() {
+		// TCP：ChannelGroup 批量关闭，会先尝试把已排队的数据写出去
+		if (!channelGroup.isEmpty()) {
+			channelGroup.close();
+		}
+		// WebSocket：逐个关闭
+		for (Channel ch : wsChannelMap.values()) {
+			if (ch != null && ch.isActive()) {
+				ch.close();
+			}
+		}
+	}
+
 	public void addClient(ChannelHandlerContext ctx){
 		String channelIdStr = ctx.channel().id().asLongText();
 		channelGroup.add(ctx.channel());
-		channelWithStringIdMap.put(channelIdStr, ctx.channel().id());
 		channelStringToChannel.put(channelIdStr, ctx.channel());
 	}
 
@@ -145,7 +221,6 @@ public class ConnectManager {
 			broadcastAllRoomUsers();
 		}
 		channelGroup.remove(ctx.channel());
-		channelWithStringIdMap.remove(channelIdStr);
 		channelStringToChannel.remove(channelIdStr);
 		// 异常断线时 userMap 可能残留，这里统一清理，避免幽灵用户
 		userMap.remove(channelIdStr);
@@ -155,15 +230,6 @@ public class ConnectManager {
 	public Channel getChannelByChannelId(String channelIdString){
 		return channelStringToChannel.get(channelIdString);
 	}
-
-	public Set<ChannelId> getChannelIdSetByChannelIdStringSet(Set<String> ChannelIdStringSet){
-		Set<ChannelId> channelIdSet = new HashSet<>();
-		for (String thisChannelIdString : ChannelIdStringSet){
-			channelIdSet.add(channelWithStringIdMap.get(thisChannelIdString));
-		}
-		return channelIdSet;
-	}
-
 	public void addUser(User user){
 		userMap.put(user.getId(), user);
 	}
@@ -196,7 +262,7 @@ public class ConnectManager {
 			}
 			// Netty WebSocket 推送：异步 + 线程池
 			final String roomName = room.getName();
-			BROADCAST_EXECUTOR.submit(() -> {
+			submitBroadcast(() -> {
 				Map<String, Object> msg = JsonUtil.newMap();
 				msg.put("type", "system");
 				msg.put("payload", "管理员解散了[" + roomName + "]");
@@ -231,7 +297,7 @@ public class ConnectManager {
 	}
 
 	/** 保证消息以单个换行结尾，兼容调用方传入的 "\n"，避免双换行 */
-	private static String ensureNewline(String s) {
+	private String ensureNewline(String s) {
 		if (s == null) return "\n";
 		return s.endsWith("\n") ? s : s + "\n";
 	}
@@ -258,7 +324,7 @@ public class ConnectManager {
 			return;
 		}
 
-		String sourceUserName = "";
+		String sourceUserName;
 		if (sourceChannelIdString == null){
 			sourceUserName = "服务器";
 		}else{
@@ -270,22 +336,11 @@ public class ConnectManager {
 			}
 		}
 
-		if (channel != null){
-			channel.writeAndFlush("[" + sourceUserName + "]对你说：" + ensureNewline(s));
-		}
-	}
+        channel.writeAndFlush("[" + sourceUserName + "]对你说：" + ensureNewline(s));
+    }
 
 	public void publishAll(String s){
 		channelGroup.writeAndFlush(s + "\n");
-	}
-
-	public void publishSet(Set<ChannelId> channelIdSet, String s){
-		channelGroup.stream()
-				.filter(ch -> {
-					ChannelId id = ch.id();
-					return id != null && channelIdSet.contains(id);
-				})
-				.forEach(ch -> ch.writeAndFlush(s + "\n"));
 	}
 
 	// ==================== WebSocket 客户端支持（Netty WebSocket） ====================
@@ -301,7 +356,7 @@ public class ConnectManager {
 	}
 
 	/** 尝试从 Netty Channel 获取远程客户端的 IP（IPv4/IPv6） */
-	public static String getWsIp(Channel channel) {
+	public String getWsIp(Channel channel) {
 		if (channel == null) return "";
 		try {
 			java.net.SocketAddress sa = channel.remoteAddress();
@@ -349,11 +404,6 @@ public class ConnectManager {
 		broadcastAllRoomUsers();
 	}
 
-	/** 查找一个已注册的 WebSocket Channel（例如在消息处理中需要写回时调用） */
-	public Channel getWsChannel(String wsId) {
-		return wsId == null ? null : wsChannelMap.get(wsId);
-	}
-
 	/** 查找指定 WebSocket Channel 对应的 wsId（供 handler 内部回查，O(1) 反向映射） */
 	public String getWsIdByChannel(Channel ch) {
 		if (ch == null) return null;
@@ -368,28 +418,35 @@ public class ConnectManager {
 	 * 原理：
 	 *   1. 每个 wsId 有独立的消息队列 wsMessageQueues
 	 *   2. 用 wsWritingFlags 的 CAS 控制「该 Channel 是否已经有写线程在消费队列」
-	 *   3. 只有当没有写线程在工作时，才启动一个新的写线程到 BROADCAST_EXECUTOR
+	 *   3. 只有当没有写线程在工作时，才启动一个新的写线程到 broadcastExecutor
 	 */
-	public static void sendToWs(String wsId, String text) {
+	public void sendToWs(String wsId, String text) {
 		if (wsId == null || text == null) return;
 		Channel channel = wsChannelMap.get(wsId);
 		if (channel == null || !channel.isActive()) return;
 
-		// 1. 获取/创建该 Channel 的消息队列
+		// 1. 获取/创建该 Channel 的消息队列（有界，防止慢客户端场景内存无限增长）
 		LinkedBlockingQueue<String> queue = wsMessageQueues.computeIfAbsent(
-			wsId, k -> new LinkedBlockingQueue<>()
+			wsId, k -> new LinkedBlockingQueue<>(WS_QUEUE_CAPACITY)
 		);
 		// 2. 获取/创建该 Channel 的写标志
 		AtomicBoolean writing = wsWritingFlags.computeIfAbsent(
 			wsId, k -> new AtomicBoolean(false)
 		);
 
-		// 3. 把消息放入队列
-		queue.offer(text);
+		// 3. 把消息放入队列。队列已满（客户端积压过多）时丢弃最旧的一条，
+		//    丢弃而不是阻塞：实时聊天场景下最新消息比历史积压更有价值，也不会反压业务线程。
+		if (!queue.offer(text)) {
+			queue.poll();
+			queue.offer(text);
+		}
 
 		// 4. CAS 检查：如果当前没有写线程，就启动一个新的写线程消费队列
 		if (writing.compareAndSet(false, true)) {
-			BROADCAST_EXECUTOR.submit(() -> drainWsQueue(wsId, channel, queue, writing));
+			if (!submitBroadcast(() -> drainWsQueue(channel, queue, writing))) {
+				// 线程池已关停，释放写标志，避免后续消息永久卡在队列里
+				writing.set(false);
+			}
 		}
 	}
 
@@ -397,7 +454,7 @@ public class ConnectManager {
 	 * 写线程：循环从队列取消息，通过 writeAndFlush(TextWebSocketFrame) 发送。
 	 * 单线程内调用 writeAndFlush 串行写入，保证无并发冲突。
 	 */
-	private static void drainWsQueue(String wsId, Channel channel,
+	private void drainWsQueue(Channel channel,
 									 LinkedBlockingQueue<String> queue, AtomicBoolean writing) {
 		try {
 			while (true) {
@@ -438,7 +495,7 @@ public class ConnectManager {
 	 * 直接向指定 Channel 发送 JSON 文本（当调用者手头只有 Channel 时使用）。
 	 * 会先通过反向映射反查 wsId（O(1)），然后走上面的统一发送逻辑，保证串行发送。
 	 */
-	public static void sendToWs(Channel channel, String text) {
+	public void sendToWs(Channel channel, String text) {
 		if (channel == null || text == null) return;
 		if (!channel.isActive()) return;
 		// 从反向映射 O(1) 反查 wsId
@@ -495,6 +552,9 @@ public class ConnectManager {
 				String userName = wsUserMap.get(wsId);
 				if (userName != null) {
 					publishRoomSystemWs(oldRoomId, userName + " 离开了房间", wsId);
+					// 切房在协议层表现为「先离开旧房间再进入新房间」：同步广播 userLeft，
+					// 避免其它客户端在 roomUsers 全量快照到达前把该用户同时算在旧房间里
+					broadcastUserLeft(oldRoomId, wsId, userName);
 				}
 			}
 		}
@@ -515,24 +575,6 @@ public class ConnectManager {
 		broadcastAllRoomUsers();
 	}
 
-	/** WebSocket 客户端离开房间（例如手动切换） */
-	public void leaveWsRoom(String wsId) {
-		if (wsId == null) return;
-		Integer roomId = wsRoomMap.remove(wsId);
-		if (roomId != null) {
-			Room room = roomMap.get(roomId);
-			if (room != null) {
-				room.removeUser(wsId);
-				String userName = wsUserMap.get(wsId);
-				if (userName != null) {
-					publishRoomSystemWs(roomId, userName + " 离开了房间", wsId);
-					broadcastUserLeft(roomId, wsId, userName);
-				}
-			}
-		}
-		broadcastAllRoomUsers();
-	}
-
 	/** 获取指定 wsId 所在的房间 ID */
 	public Integer getWsRoomId(String wsId) {
 		return wsId == null ? null : wsRoomMap.get(wsId);
@@ -544,7 +586,6 @@ public class ConnectManager {
 	 * 向房间内所有成员发送一条聊天消息（TCP 与 WebSocket 双通道）。
 	 * - TCP 客户端收到: [userName]: payload
 	 * - WebSocket 客户端收到: {"type":"room","roomId":...,"wsId":...,"userName":"...","payload":"...","timestamp":...}
-	 *
 	 * senderWsId 为发送者的 wsId；TCP 客户端发送时传 null。
 	 */
 	public void publishRoomMessage(Integer roomId, String userName, String payload) {
@@ -574,9 +615,24 @@ public class ConnectManager {
 		wsJson.put("timestamp", System.currentTimeMillis());
 		String wsText = JsonUtil.toJson(wsJson);
 
-		for (String idStr : room.getUserChannelIdSet()) {
+		dispatchToRoomMembers(room, tcpText, wsText, null);
+	}
+
+	/**
+	 * 向房间内所有成员推送一条消息（TCP 与 WebSocket 双通道）：
+	 * - TCP 成员：直接写出 tcpText
+	 * - WebSocket 成员：写出 wsText（统一走 sendToWs，保证每个 Channel 串行发送）
+	 * excludeId 为需要跳过的成员 id（wsId 或 TCP channelId），传 null 表示不跳过。
+	 */
+	private void dispatchToRoomMembers(Room room, String tcpText, String wsText, String excludeId) {
+		if (room == null) return;
+		Set<String> memberIds = room.getUserChannelIdSet();
+		if (memberIds == null) return;
+		for (String idStr : memberIds) {
+			if (StringUtils.equals(excludeId, idStr)) continue;
 			Channel channel = channelStringToChannel.get(idStr);
 			if (channel != null) {
+				// TCP 成员
 				if (channel.isActive()) {
 					channel.writeAndFlush(tcpText);
 				}
@@ -594,7 +650,6 @@ public class ConnectManager {
 	 * 向房间内的 TCP 与 WebSocket 成员推送系统提示（如 xxx 加入/离开了房间）。
 	 * - TCP 客户端收到: [系统]: text
 	 * - WebSocket 客户端收到: {"type":"system","payload":"...","timestamp":...}
-	 *
 	 * excludeId 为触发提示的成员 id（wsId 或 TCP channelId），不为空时不发给该成员。
 	 */
 	public void publishRoomSystemWs(Integer roomId, String text, String excludeId) {
@@ -609,21 +664,7 @@ public class ConnectManager {
 		String wsText = JsonUtil.toJson(wsJson);
 		String tcpText = "[系统]: " + text + "\n";
 
-		for (String idStr : room.getUserChannelIdSet()) {
-			if (StringUtils.equals(excludeId, idStr)) continue;
-			Channel channel = channelStringToChannel.get(idStr);
-			if (channel != null) {
-				if (channel.isActive()) {
-					channel.writeAndFlush(tcpText);
-				}
-				continue;
-			}
-			// WebSocket 成员
-			Channel wsChannel = wsChannelMap.get(idStr);
-			if (wsChannel != null && wsChannel.isActive()) {
-				sendToWs(idStr, wsText);
-			}
-		}
+		dispatchToRoomMembers(room, tcpText, wsText, excludeId);
 	}
 
 	/**
@@ -661,14 +702,14 @@ public class ConnectManager {
 	 */
 	public void broadcastAllRoomUsers() {
 		// 合并窗口内的多次触发，避免进出房/断线密集时重复构建与推送全量用户树
-		if (!ROOM_USERS_PENDING.compareAndSet(false, true)) return;
-		BROADCAST_SCHEDULER.schedule(() -> {
-			ROOM_USERS_PENDING.set(false);
+		if (!roomUsersPending.compareAndSet(false, true)) return;
+		scheduleBroadcast(() -> {
+			roomUsersPending.set(false);
 			doBroadcastAllRoomUsers();
-		}, BROADCAST_MERGE_WINDOW_MS, TimeUnit.MILLISECONDS);
+		});
 	}
 
-	private static void doBroadcastAllRoomUsers() {
+	private void doBroadcastAllRoomUsers() {
 		if (wsChannelMap.isEmpty()) return;
 		String text = buildAllRoomUsersJson();
 		for (String wsId : wsChannelMap.keySet()) {
@@ -676,21 +717,27 @@ public class ConnectManager {
 		}
 	}
 
-	private static String buildAllRoomUsersJson() {
+	/** 构建房间的公共字段（id/name/hasPassword/userNum），供 roomList 与 roomUsers 复用 */
+	private Map<String, Object> buildRoomBaseJson(Room room) {
+		Map<String, Object> rj = JsonUtil.newMap();
+		rj.put("id", room.getId());
+		rj.put("name", room.getName());
+		if (StringUtils.isNotBlank(room.getPassword())) {
+			rj.put("hasPassword", "1");
+		} else {
+			rj.put("hasPassword", "0");
+		}
+		rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
+		return rj;
+	}
+
+	private String buildAllRoomUsersJson() {
 		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomUsers");
 		List<Map<String, Object>> roomArr = new ArrayList<>();
 		for (Room room : roomMap.values()) {
 			if (room == null) continue;
-			Map<String, Object> rj = JsonUtil.newMap();
-			rj.put("id", room.getId());
-			rj.put("name", room.getName());
-			if (StringUtils.isNotBlank(room.getPassword())) {
-				rj.put("hasPassword", "1");
-			} else {
-				rj.put("hasPassword", "0");
-			}
-			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
+			Map<String, Object> rj = buildRoomBaseJson(room);
 			List<Map<String, Object>> userArr = new ArrayList<>();
 			Set<String> ids = room.getUserChannelIdSet();
 			if (ids != null) {
@@ -839,42 +886,29 @@ public class ConnectManager {
 	 */
 	public void broadcastRoomList() {
 		// 合并窗口内的多次触发，避免增删改房的连环调用重复构建与推送
-		if (!ROOM_LIST_PENDING.compareAndSet(false, true)) return;
-		BROADCAST_SCHEDULER.schedule(() -> {
-			ROOM_LIST_PENDING.set(false);
+		if (!roomListPending.compareAndSet(false, true)) return;
+		scheduleBroadcast(() -> {
+			roomListPending.set(false);
 			doBroadcastRoomList();
-		}, BROADCAST_MERGE_WINDOW_MS, TimeUnit.MILLISECONDS);
-	}
-
-	private static void doBroadcastRoomList() {
-		if (wsChannelMap.isEmpty()) return;
-		final String text = buildRoomListJson();
-		// 提交到异步线程池，通过 Netty writeAndFlush 推送
-		BROADCAST_EXECUTOR.submit(() -> {
-			for (Channel ch : wsChannelMap.values()) {
-				if (ch != null && ch.isActive()) {
-					ch.writeAndFlush(new TextWebSocketFrame(text));
-				}
-			}
 		});
 	}
 
-	private static String buildRoomListJson() {
+	private void doBroadcastRoomList() {
+		if (wsChannelMap.isEmpty()) return;
+		String text = buildRoomListJson();
+		// 通过统一入口发送，保证每个 Channel 与 roomUsers/聊天消息串行写入，避免帧顺序错乱
+		for (String wsId : wsChannelMap.keySet()) {
+			sendToWs(wsId, text);
+		}
+	}
+
+	private String buildRoomListJson() {
 		Map<String, Object> root = JsonUtil.newMap();
 		root.put("type", "roomList");
 		List<Map<String, Object>> roomArr = new ArrayList<>();
 		for (Room room : roomMap.values()) {
 			if (room == null) continue;
-			Map<String, Object> rj = JsonUtil.newMap();
-			rj.put("id", room.getId());
-			rj.put("name", room.getName());
-			if (StringUtils.isNotBlank(room.getPassword())) {
-				rj.put("hasPassword", "1");
-			} else {
-				rj.put("hasPassword", "0");
-			}
-			rj.put("userNum", room.getUserNum() == null ? 0 : room.getUserNum());
-			roomArr.add(rj);
+			roomArr.add(buildRoomBaseJson(room));
 		}
 		root.put("rooms", roomArr);
 		return JsonUtil.toJson(root);

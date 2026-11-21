@@ -12,21 +12,28 @@ import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
  */
 public class SystemLogWsHandler extends SimpleChannelInboundHandler<TextWebSocketFrame> {
 
+    /** 订阅者集合由 Spring 单例持有，不再通过 static 全局容器共享 */
+    private final SystemLogEndpoint logEndpoint;
+
+    public SystemLogWsHandler(SystemLogEndpoint logEndpoint) {
+        this.logEndpoint = logEndpoint;
+    }
+
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
-        SystemLogEndpoint.addChannel(ctx.channel());
+        logEndpoint.addChannel(ctx.channel());
     }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        SystemLogEndpoint.removeChannel(ctx.channel());
+        logEndpoint.removeChannel(ctx.channel());
     }
 
     @Override
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
         if (evt instanceof WebSocketServerProtocolHandler.HandshakeComplete) {
             // 握手完成后客户端正式订阅
-            SystemLogEndpoint.addChannel(ctx.channel());
+            logEndpoint.addChannel(ctx.channel());
         }
         ctx.fireUserEventTriggered(evt);
     }
@@ -38,8 +45,8 @@ public class SystemLogWsHandler extends SimpleChannelInboundHandler<TextWebSocke
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        cause.printStackTrace();
-        SystemLogEndpoint.removeChannel(ctx.channel());
+//        cause.printStackTrace();
+        logEndpoint.removeChannel(ctx.channel());
         ctx.close();
     }
 }

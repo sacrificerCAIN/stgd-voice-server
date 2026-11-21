@@ -150,9 +150,7 @@ public class IpBlacklistController {
             return resp;
         }
         String ip = payload.get("ip").toString().trim();
-        String reason = payload.get("reason") == null ? "管理员强制踢下线"
-                : payload.get("reason").toString();
-        int kicked = manager.kickByIp(ip, reason);
+        int kicked = manager.kickByIp(ip);
         resp.put("success", true);
         resp.put("kickedCount", kicked);
         resp.put("message", "已下线 " + kicked + " 个连接");

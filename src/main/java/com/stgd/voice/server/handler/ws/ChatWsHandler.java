@@ -9,14 +9,13 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.Setter;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Netty WebSocket 聊天业务处理器（仅处理聊天、私聊、WebRTC信令，房间管理通过 HTTP REST 接口完成）。
- *
  * 工作流程：
  *   1. 客户端通过 /ws/chat 发起 WebSocket 握手（?loginUser=、?wsId= 均不可信，已被忽略）
  *   2. ChatWsHandshaker 在协议升级前由服务端生成 wsId，调用 setWsInfo 注册当前 Channel
@@ -28,12 +27,9 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
 
     private final ConnectManager connectManager;
 
-    @Autowired(required = false)
+    /** 由 NettyMain.setBlacklistManager 注入（本类由 new 创建，不是 Spring Bean） */
+    @Setter
     private IpBlacklistManager blacklistManager;
-
-    public void setBlacklistManager(IpBlacklistManager m) {
-        this.blacklistManager = m;
-    }
 
     private String wsId;
 
@@ -67,7 +63,7 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        cause.printStackTrace();
+//        cause.printStackTrace();
         if (this.wsId != null) {
             connectManager.removeWsChannel(this.wsId);
         }
@@ -94,21 +90,21 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
             int type = message.getType();
             switch (type) {
                 case 1:  handleLogin(ctx, message);   break;
-                case 2:  handleIdle(ctx, message);    break;
+                case 2:  handleIdle(ctx);    break;
                 case 3:  handleRoomMessage(ctx, message); break;
                 case 4:  handlePrivateMessage(ctx, message); break;
                 case 5:  handleBroadcast(ctx, message); break;
                 case 6:  handleJoinRoom(ctx, message); break;
-                case 7:  handleLogout(ctx); break;
-                case 8:  handleGetAllRoomUsers(ctx); break;
-                case 9:  handleGetRoomList(ctx); break;
+                case 7:  handleLogout(); break;
+                case 8:  handleGetAllRoomUsers(); break;
+                case 9:  handleGetRoomList(); break;
                 // type=10/11/12 已从 WebSocket 移除，房间管理请通过 HTTP REST 接口（需登录）
                 case 13: handleWebRtcSignal(ctx, message); break;
                 default: sendSystem(ctx, "未知消息类型");
             }
         } catch (Exception e) {
             sendSystem(ctx, "消息解析失败");
-            e.printStackTrace();
+//            e.printStackTrace();
         }
     }
 
@@ -126,7 +122,7 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
         sendJson(ctx, resp);
     }
 
-    private void handleIdle(ChannelHandlerContext ctx, Message message) {
+    private void handleIdle(ChannelHandlerContext ctx) {
         Map<String, Object> resp = JsonUtil.newMap();
         resp.put("type", "idle");
         resp.put("timestamp", System.currentTimeMillis());
@@ -209,23 +205,23 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
         String text = JsonUtil.toJson(msg);
         for (Channel ch : connectManager.getAllWsChannels()) {
             if (ch != null && ch.isActive()) {
-                ConnectManager.sendToWs(ch, text);
+                connectManager.sendToWs(ch, text);
             }
         }
     }
 
-    private void handleLogout(ChannelHandlerContext ctx) {
+    private void handleLogout() {
         if (this.wsId != null) {
             connectManager.removeWsChannel(this.wsId);
             connectManager.broadcastAllRoomUsers();
         }
     }
 
-    private void handleGetAllRoomUsers(ChannelHandlerContext ctx) {
+    private void handleGetAllRoomUsers() {
         connectManager.broadcastAllRoomUsers();
     }
 
-    private void handleGetRoomList(ChannelHandlerContext ctx) {
+    private void handleGetRoomList() {
         connectManager.broadcastRoomList();
     }
 
@@ -233,11 +229,11 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
         Map<String, Object> msg = JsonUtil.newMap();
         msg.put("type", "system");
         msg.put("payload", text);
-        ConnectManager.sendToWs(ctx.channel(), JsonUtil.toJson(msg));
+        connectManager.sendToWs(ctx.channel(), JsonUtil.toJson(msg));
     }
 
     private void sendJson(ChannelHandlerContext ctx, Map<String, Object> json) {
         if (json == null) return;
-        ConnectManager.sendToWs(ctx.channel(), JsonUtil.toJson(json));
+        connectManager.sendToWs(ctx.channel(), JsonUtil.toJson(json));
     }
 }

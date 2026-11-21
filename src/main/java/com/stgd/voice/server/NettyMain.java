@@ -12,10 +12,10 @@ import com.stgd.voice.server.handler.ws.ChatWsHandshaker;
 import com.stgd.voice.server.handler.ws.SystemLogWsHandler;
 import com.stgd.voice.server.handler.ws.WebSocketPathRouter;
 import com.stgd.voice.service.publish.impl.strategy.factory.MessageStrategyFactory;
-import com.stgd.voice.ws.SystemLogPublisher;
-import com.stgd.voice.mapper.RoomMapper;
+import com.stgd.voice.ws.SystemLogEndpoint;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.EventLoopGroup;
@@ -29,17 +29,17 @@ import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
-import io.netty.handler.timeout.IdleState;
-import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.CharsetUtil;
-
-import java.util.concurrent.TimeUnit;
-import org.springframework.beans.factory.annotation.Autowired;
+import io.netty.util.concurrent.Future;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
 import java.net.BindException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class NettyMain {
@@ -52,7 +52,12 @@ public class NettyMain {
 	@Resource
 	private ServerConfig serverConfig;
 	@Resource
-	private SystemLogPublisher logPublisher;
+	private SystemLogEndpoint systemLogEndpoint;
+
+	/** 服务端 Channel（TCP/WS/UDP 监听套接字），关停时先关闭它们停止接入新连接 */
+	private final List<Channel> serverChannels = new ArrayList<>();
+	/** Netty 线程池，关停时逐个 shutdownGracefully 并等待终止 */
+	private final List<EventLoopGroup> eventLoopGroups = new ArrayList<>();
 
 	/** 判断某个远程地址是否属于黑名单。返回 null 表示不拒绝，否则返回拒绝原因。 */
 	private String rejectIfBlacklisted(io.netty.channel.Channel ch) {
@@ -74,6 +79,11 @@ public class NettyMain {
 		EventLoopGroup tcpGroup = new NioEventLoopGroup();
 		EventLoopGroup wsGroup = new NioEventLoopGroup();
 		EventLoopGroup udpGroup = new NioEventLoopGroup();
+
+		eventLoopGroups.add(bossGroup);
+		eventLoopGroups.add(tcpGroup);
+		eventLoopGroups.add(wsGroup);
+		eventLoopGroups.add(udpGroup);
 
 		try {
 			// ============ TCP 服务器 ============
@@ -103,9 +113,10 @@ public class NettyMain {
 					}
 				});
 
-			ChannelFuture tcpFuture = null;
+			ChannelFuture tcpFuture;
 			try {
 				tcpFuture = tcpBootstrap.bind(serverConfig.getTcpPort()).sync();
+				serverChannels.add(tcpFuture.channel());
 				System.out.println("TCP服务启动成功，端口：" + serverConfig.getTcpPort());
 			} catch (Exception e) {
 				handleBindException(e, "TCP", serverConfig.getTcpPort());
@@ -144,7 +155,7 @@ public class NettyMain {
 						// - /ws/system-log -> WebSocketServerProtocolHandler(/ws/system-log) + SystemLogWsHandler
 						final ChatWsHandler chatHandler = new ChatWsHandler(connectManager);
 						if (blacklistManager != null) chatHandler.setBlacklistManager(blacklistManager);
-						final SystemLogWsHandler logHandler = new SystemLogWsHandler();
+						final SystemLogWsHandler logHandler = new SystemLogWsHandler(systemLogEndpoint);
 
 						Runnable installChat = () -> {
 							ch.pipeline().addLast(new ChatWsHandshaker(chatHandler));
@@ -160,7 +171,7 @@ public class NettyMain {
 						}
 					});
 				try {
-					wsBootstrap.bind(wsPort).sync();
+					serverChannels.add(wsBootstrap.bind(wsPort).sync().channel());
 					System.out.println("WebSocket服务启动成功，端口：" + wsPort + "（路径 /ws/chat、/ws/system-log）");
 				} catch (Exception e) {
 					handleBindException(e, "WebSocket", wsPort);
@@ -184,6 +195,7 @@ public class NettyMain {
 			ChannelFuture udpFuture;
 			try {
 				udpFuture = udpBootstrap.bind(serverConfig.getUdpPort()).sync();
+				serverChannels.add(udpFuture.channel());
 				System.out.println("UDP服务启动成功，端口：" + serverConfig.getUdpPort());
 			} catch (Exception e) {
 				handleBindException(e, "UDP", serverConfig.getUdpPort());
@@ -200,20 +212,40 @@ public class NettyMain {
 			System.out.println("聊天室 http://" + host + ":" + serverConfig.getPort() + "/chat.html");
 
 			// 等待主 TCP 服务器关闭
-			if (tcpFuture != null) {
-				tcpFuture.channel().closeFuture().sync();
-			}
+            tcpFuture.channel().closeFuture().sync();
 
-		} catch (InterruptedException e) {
+        } catch (InterruptedException e) {
 			System.err.println("服务被中断：" + e.getMessage());
 			Thread.currentThread().interrupt();
 		} catch (Exception e) {
 			System.err.println("服务启动异常：" + e.getMessage());
 		} finally {
-			bossGroup.shutdownGracefully();
-			tcpGroup.shutdownGracefully();
-			wsGroup.shutdownGracefully();
-			udpGroup.shutdownGracefully();
+			destroy();
+		}
+	}
+
+	/**
+	 * 优雅关停：先停止监听，再关闭已建立连接，最后逐个关停 EventLoopGroup 并等待终止，
+	 * 避免进程退出时丢弃待写数据或残留线程。可重复调用（start() 的 finally 与 Spring 容器销毁可能同时触发）。
+	 */
+	@PreDestroy
+	public synchronized void destroy() {
+		for (Channel serverChannel : serverChannels) {
+			if (serverChannel != null && serverChannel.isOpen()) {
+				serverChannel.close().awaitUninterruptibly(3, TimeUnit.SECONDS);
+			}
+		}
+		serverChannels.clear();
+		if (connectManager != null) {
+			connectManager.closeAllConnections();
+		}
+		List<Future<?>> futures = new ArrayList<>();
+		for (EventLoopGroup group : eventLoopGroups) {
+			futures.add(group.shutdownGracefully(0, 5, TimeUnit.SECONDS));
+		}
+		eventLoopGroups.clear();
+		for (Future<?> future : futures) {
+			future.awaitUninterruptibly(6, TimeUnit.SECONDS);
 		}
 	}
 

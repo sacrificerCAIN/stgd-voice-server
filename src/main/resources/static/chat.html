@@ -1111,6 +1111,8 @@
       //   try { chatSocket.send(JSON.stringify({ type: 8 })); } catch(e) {}
       // }
     } else if (type === 'join') {
+      // 切换房间时旧房间不会收到 userLeft，这里先本地剔除自己，避免两个房间同时显示自己
+      removeUserFromOtherRooms(currentWsId || currentUserId, data.roomId);
       currentRoomId = data.roomId;
       currentRoomName = data.roomName;
       document.getElementById('chatHeader').textContent = data.roomName;
@@ -1287,11 +1289,34 @@
     renderRoomUsers();
   }
 
+  // 把指定用户从除 keepRoomId 以外的所有房间本地列表中移除。
+  // 后端切换房间时只广播新房间的 userJoined，不会为旧房间发 userLeft，
+  // 若不处理，用户会在 150ms 合并窗口内同时出现在两个房间。
+  function removeUserFromOtherRooms(userId, keepRoomId) {
+    if (!userId) return false;
+    let changed = false;
+    Object.keys(roomUserMap).forEach(key => {
+      const r = roomUserMap[key];
+      if (!r || !Array.isArray(r.users)) return;
+      if (String(r.id) === String(keepRoomId)) return;
+      const before = r.users.length;
+      r.users = r.users.filter(u => u.userId !== userId);
+      if (r.users.length !== before) {
+        r.userNum = r.users.length;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
   function handleUserJoined(data) {
     if (!data || data.roomId == null || !data.userId) return;
+    // 入房/切房：先把该用户从其它房间剔除，再把他加进目标房间
+    const changed = removeUserFromOtherRooms(data.userId, data.roomId);
     const room = roomUserMap[data.roomId];
     if (!room) {
       // 服务器可能还没推全量，这里先占位等待全量推送
+      if (changed) renderRoomUsers();
       return;
     }
     if (!room.users.find(u => u.userId === data.userId)) {

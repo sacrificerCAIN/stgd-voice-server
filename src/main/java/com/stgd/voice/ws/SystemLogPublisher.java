@@ -3,6 +3,7 @@ package com.stgd.voice.ws;
 import com.stgd.voice.util.JsonUtil;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.Resource;
 import java.util.Map;
 
 /**
@@ -12,6 +13,9 @@ import java.util.Map;
 @Component
 public class SystemLogPublisher {
 
+    @Resource
+    private SystemLogEndpoint systemLogEndpoint;
+
     public void publish(String type, String userName, String roomName, String message) {
         Map<String, Object> json = JsonUtil.newMap();
         json.put("type", type);
@@ -20,6 +24,8 @@ public class SystemLogPublisher {
         json.put("roomName", roomName);
         json.put("message", message);
         json.put("timestamp", System.currentTimeMillis());
-        SystemLogEndpoint.broadcast(JsonUtil.toJson(json));
+        if (systemLogEndpoint != null) {
+            systemLogEndpoint.broadcast(JsonUtil.toJson(json));
+        }
     }
 }

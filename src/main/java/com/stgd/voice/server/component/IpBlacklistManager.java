@@ -23,7 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class IpBlacklistManager {
 
-    private static final Set<String> BLACKLIST_SET = ConcurrentHashMap.newKeySet();
+    /** 内存黑名单（实例级，随 Spring 单例创建，不再使用 static 全局容器） */
+    private final Set<String> blacklistSet = ConcurrentHashMap.newKeySet();
 
     @Resource
     private IpBlacklistMapper mapper;
@@ -37,7 +38,7 @@ public class IpBlacklistManager {
     /** 首次被调用或由 NettyMain.init() 显式初始化时，从数据库加载全量黑名单到内存 */
     public synchronized void init() {
         System.out.println("正在初始化黑名单 IP 列表...");
-        BLACKLIST_SET.clear();
+        blacklistSet.clear();
         List<IpBlacklist> list;
         try {
             list = mapper.selectAll();
@@ -52,9 +53,9 @@ public class IpBlacklistManager {
         for (IpBlacklist item : list) {
             if (item == null) continue;
             String ip = normalizeIp(item.getIp());
-            if (ip != null) BLACKLIST_SET.add(ip);
+            if (ip != null) blacklistSet.add(ip);
         }
-        System.out.println("黑名单 IP 列表初始化完成：共 " + BLACKLIST_SET.size() + " 条");
+        System.out.println("黑名单 IP 列表初始化完成：共 " + blacklistSet.size() + " 条");
     }
 
     /** 返回当前内存中所有黑名单 IP（用于 dashboard 回显） */
@@ -70,8 +71,8 @@ public class IpBlacklistManager {
         // 保证按照 id 倒序，便于管理员查看最新条目
         dbList.sort((a, b) -> {
             if (a == null || b == null) return 0;
-            Integer idA = a.getId() == null ? 0 : a.getId();
-            Integer idB = b.getId() == null ? 0 : b.getId();
+            int idA = a.getId() == null ? 0 : a.getId();
+            int idB = b.getId() == null ? 0 : b.getId();
             return Integer.compare(idB, idA);
         });
         return dbList;
@@ -80,7 +81,7 @@ public class IpBlacklistManager {
     /** 判断一个 IP 是否已被加入黑名单 */
     public boolean isBlack(String ip) {
         String norm = normalizeIp(ip);
-        return norm != null && BLACKLIST_SET.contains(norm);
+        return norm != null && blacklistSet.contains(norm);
     }
 
     /** 从 Netty Channel 读取 IP 并判断是否被加入黑名单 */
@@ -94,19 +95,11 @@ public class IpBlacklistManager {
         return ctx != null && isBlack(ctx.channel());
     }
 
-    /** 从 HttpServletRequest 获取客户端 IP 并判断（用于普通 Web 请求） */
-    public boolean isBlack(javax.servlet.http.HttpServletRequest request) {
-        if (request == null) return false;
-        String ip = getRequestIp(request);
-        return isBlack(ip);
-    }
-
     /**
      * 添加一个 IP 到黑名单：
      *   - 数据库写入（若已存在则返回失败，便于前端提示）
      *   - 同时加入内存 Set
      *   - 自动强制断开当前在线、来源 IP 等于该 IP 的所有连接
-     *
      * 返回值：{ success, message, insertedId, kickedCount }
      */
     public synchronized Map<String, Object> addBlacklist(String ip, String remark) {
@@ -144,10 +137,10 @@ public class IpBlacklistManager {
             resp.put("message", "写入数据库失败");
             return resp;
         }
-        BLACKLIST_SET.add(normIp);
+        blacklistSet.add(normIp);
 
         // 自动踢出当前在线的、同 IP 的连接
-        int kicked = kickByIp(normIp, "管理员把该 IP 加入黑名单");
+        int kicked = kickByIp(normIp);
 
         resp.put("success", true);
         resp.put("id", entity.getId());
@@ -193,7 +186,7 @@ public class IpBlacklistManager {
             return resp;
         }
         String normIp = normalizeIp(item.getIp());
-        if (normIp != null) BLACKLIST_SET.remove(normIp);
+        if (normIp != null) blacklistSet.remove(normIp);
         resp.put("success", true);
         resp.put("ip", item.getIp());
         resp.put("message", "已从黑名单移除：" + item.getIp());
@@ -205,10 +198,9 @@ public class IpBlacklistManager {
     }
 
     /** 根据 IP 强制断开当前在线的所有用户连接（管理员添加黑名单后自动触发，也可作为独立接口使用） */
-    public int kickByIp(String ip, String reason) {
+    public int kickByIp(String ip) {
         String normIp = normalizeIp(ip);
         if (normIp == null || connectManager == null) return 0;
-        if (reason == null) reason = "管理员强制下线";
 
         // 收集所有在线 wsId -> ip 的映射，然后关闭匹配的 Channel
         Collection<Channel> channels = connectManager.getAllWsChannels();
