@@ -694,7 +694,16 @@
         const m = Math.floor((s % 3600) / 60);
         return pad2(h) + ':' + pad2(m) + ':' + pad2(s % 60);
     }
-    function gotoChat() { window.location.href = '/chat.html'; }
+    function gotoChat() {
+        // 若控制台是从聊天室打开的独立标签页，直接关闭回到原聊天页
+        //（原聊天页的 WebSocket 一直在线，不会再建立第二个连接）；
+        // 否则（如从登录页直接进入控制台）在当前标签页跳转到聊天室
+        if (window.opener && !window.opener.closed) {
+            window.close();
+            return;
+        }
+        window.location.href = '/chat.html';
+    }
     function confirmLogout() {
         if (confirm('确定要退出登录吗？')) {
             fetch('/login/logout', { method: 'POST', credentials: 'include' });

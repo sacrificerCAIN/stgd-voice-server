@@ -1491,7 +1491,9 @@
       alert('没有管理员权限');
       return;
     }
-    window.location.href = '/dashboard.html';
+    // 新标签页打开控制台，保留当前聊天页面的 WebSocket 连接，
+    // 避免同标签跳转导致重新连接后在线列表出现两个同名用户
+    window.open('/dashboard.html', '_blank');
   }
 
   function logout() {

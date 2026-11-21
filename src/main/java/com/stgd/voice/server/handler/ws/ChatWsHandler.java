@@ -18,8 +18,8 @@ import java.util.Map;
  * Netty WebSocket 聊天业务处理器（仅处理聊天、私聊、WebRTC信令，房间管理通过 HTTP REST 接口完成）。
  *
  * 工作流程：
- *   1. 客户端通过 /ws/chat?wsId=yyy 发起 WebSocket 握手（已移除 ?loginUser=，该参数不可信）
- *   2. ChatWsHandshaker 在协议升级前解析 query，调用 setWsInfo 注册当前 Channel
+ *   1. 客户端通过 /ws/chat 发起 WebSocket 握手（?loginUser=、?wsId= 均不可信，已被忽略）
+ *   2. ChatWsHandshaker 在协议升级前由服务端生成 wsId，调用 setWsInfo 注册当前 Channel
  *   3. WebSocketServerProtocolHandler 完成握手后触发 HandshakeComplete 事件，本 handler 推送一次房间列表
  *   4. 后续文本消息按 Message.type 分发处理
  *   5. 注意：房间管理（添加/删除/更新房间）仅能通过 HTTP REST 接口（需登录）完成，已从 WebSocket 移除
