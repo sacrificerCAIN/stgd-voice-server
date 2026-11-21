@@ -23,7 +23,7 @@ public class LoginController {
 	@Resource
 	private SystemLogSessionRegistry logSessionRegistry;
 
-	@RequestMapping("login")
+	@PostMapping("login")
 	@ResponseBody
 	public Map<String, Object> login(@RequestBody AdminUser adminUser,
 	                                 HttpServletRequest request) {
@@ -32,6 +32,10 @@ public class LoginController {
 		if (loginUser != null){
 			// 获取或创建session
 			HttpSession session = request.getSession();
+			// 登录后切换 sessionId，防范会话固定攻击（/adminUser/login 也走此入口）
+			try {
+				request.changeSessionId();
+			} catch (Exception ignored) { /* 旧版本 Servlet 可能不支持，忽略 */ }
 			// 设置session属性
 			session.setAttribute("id", loginUser.getId());
 			session.setAttribute("username", loginUser.getUsername());

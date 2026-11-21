@@ -3,7 +3,6 @@ package com.stgd.voice.controller;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.stgd.voice.model.entity.AdminUser;
 import com.stgd.voice.mapper.AdminUserMapper;
-import com.stgd.voice.server.component.SystemLogSessionRegistry;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -21,9 +20,9 @@ public class AdminUserController {
 	@Resource
 	private AdminUserMapper adminUserMapper;
 
-	/** 登录会话登记表：供 /ws/system-log 握手鉴权使用 */
+	/** 登录/会话/登出与 /login/* 共用同一实现，避免两套逻辑不一致 */
 	@Resource
-	private SystemLogSessionRegistry logSessionRegistry;
+	private LoginController loginController;
 
 	/** 校验是否不是 super 管理员。未登录或非 super 账号返回 true，需拒绝操作。 */
 	private boolean isNotSuper(HttpSession session) {
@@ -132,71 +131,22 @@ public class AdminUserController {
 		return response;
 	}
 
-	@RequestMapping("login")
+	@PostMapping("login")
 	@ResponseBody
 	public Map<String, Object> login(@RequestBody AdminUser adminUser,
 	                                 HttpServletRequest request) {
-		Map<String, Object> response = new HashMap<>();
-		AdminUser loginUser = adminUserMapper.login(adminUser);
-		if (loginUser != null){
-			// 获取或创建session
-			HttpSession session = request.getSession();
-			// 登录后切换 sessionId，防范会话固定攻击
-			try {
-				request.changeSessionId();
-			} catch (Exception ignored) { /* 旧版本 Servlet 可能不支持，忽略 */ }
-			// 设置session属性
-			session.setAttribute("id", loginUser.getId());
-			session.setAttribute("username", loginUser.getUsername());
-			// 显式设置3天过期(可选，因为已在配置中设置)
-			session.setMaxInactiveInterval(259200);
-			logSessionRegistry.register(session);
-			response.put("code", 1);
-			response.put("username", loginUser.getUsername());
-			return response;
-		}else {
-			response.put("code", 0);
-			response.put("message", "用户名或密码错误");
-			return response;
-		}
+		// 委托给统一登录入口：包含 changeSessionId、会话登记等安全处理
+		return loginController.login(adminUser, request);
 	}
 
 
 	@GetMapping("checkSession")
 	public Map<String, Object> checkSession(HttpServletRequest request) {
-		Map<String, Object> response = new HashMap<>();
-		HttpSession session = request.getSession(false);
-
-		String username = (session == null) ? null : (String) session.getAttribute("username");
-		if (StringUtils.isNotBlank(username)) {
-			// 每次检查会话时刷新过期时间
-			session.setMaxInactiveInterval(259200);
-			response.put("isAuthenticated", true);
-			response.put("id", session.getAttribute("id"));
-		} else {
-			// 没有会话或存在空会话（如游客）一律视为未登录
-			response.put("isAuthenticated", false);
-		}
-
-		return response;
+		return loginController.checkSession(request);
 	}
 
 	@PostMapping("/logout")
 	public Map<String, Object> logout(HttpServletRequest request) {
-		Map<String, Object> response = new HashMap<>();
-		HttpSession session = request.getSession(false);
-
-		if (session != null) {
-			String sessionId = session.getId();
-			session.invalidate();
-			logSessionRegistry.unregister(sessionId);
-			response.put("success", true);
-			response.put("message", "登出成功");
-		} else {
-			response.put("success", false);
-			response.put("message", "没有活跃的会话");
-		}
-
-		return response;
+		return loginController.logout(request);
 	}
 }

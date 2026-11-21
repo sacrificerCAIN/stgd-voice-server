@@ -1262,11 +1262,33 @@
         if (box) box.value = '';
     }
 
+    // WebSocket 服务端端口：启动时向 /ws/config 询问，避免与 application.yml 的 server.ws-port 不一致
+    let wsPort = 0;
+
+    async function loadWsConfig() {
+        try {
+            const resp = await fetch('/ws/config', { credentials: 'include' });
+            const cfg = await resp.json();
+            wsPort = (cfg && typeof cfg.port === 'number' && cfg.port > 0) ? cfg.port : 0;
+        } catch (e) {
+            // 拿不到配置时按同源处理（例如 Nginx 已把 /ws 反代到对应端口）
+            console.warn('获取 WebSocket 配置失败，将按同源地址连接：', e);
+            wsPort = 0;
+        }
+    }
+
+    // 端口为 0 时使用当前页面的 host（同源反代），HTTPS 页面自动使用 wss
+    function wsHost() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = (wsPort > 0)
+            ? (window.location.hostname || 'localhost') + ':' + wsPort
+            : window.location.host;
+        return protocol + '//' + host;
+    }
+
     function connectSystemLog() {
         wsManuallyClosed = false;
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = `${window.location.hostname || 'localhost'}:8003`;
-        const url = protocol + '//' + host + '/ws/system-log';
+        const url = wsHost() + '/ws/system-log';
         try {
             setWsStatus('connecting', '连接中...');
             systemLogSocket = new WebSocket(url);
@@ -1337,6 +1359,8 @@
     // ============ 启动 ============
     async function init() {
         try {
+            // 先取 WebSocket 端口，避免用默认端口连错
+            await loadWsConfig();
             const response = await fetch('/login/checkSession', {
                 method: 'GET', credentials: 'include'
             });

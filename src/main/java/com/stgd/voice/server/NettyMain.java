@@ -89,6 +89,8 @@ public class NettyMain {
 		eventLoopGroups.add(wsGroup);
 		eventLoopGroups.add(udpGroup);
 
+		// true 表示正常关停（监听 Channel 关闭或被中断），false 表示启动过程中失败
+		boolean normalShutdown = false;
 		try {
 			// ============ TCP 服务器 ============
 			ServerBootstrap tcpBootstrap = new ServerBootstrap();
@@ -113,7 +115,9 @@ public class NettyMain {
 						}
 						ch.pipeline().addLast(new StringDecoder(CharsetUtil.UTF_8));
 						ch.pipeline().addLast(new StringEncoder(CharsetUtil.UTF_8));
-						ch.pipeline().addLast(new TextHandler(connectManager, messageStrategyFactory));
+						// 本类由 new 创建（不是 Spring Bean），黑名单必须通过构造器传入，
+						// 否则 TextHandler 内部的 @Autowired 字段永远为 null
+						ch.pipeline().addLast(new TextHandler(connectManager, messageStrategyFactory, blacklistManager));
 					}
 				});
 
@@ -218,14 +222,22 @@ public class NettyMain {
 
 			// 等待主 TCP 服务器关闭
             tcpFuture.channel().closeFuture().sync();
+            normalShutdown = true;
 
         } catch (InterruptedException e) {
 			System.err.println("服务被中断：" + e.getMessage());
 			Thread.currentThread().interrupt();
+			normalShutdown = true;
 		} catch (Exception e) {
 			System.err.println("服务启动异常：" + e.getMessage());
+			e.printStackTrace();
 		} finally {
 			destroy();
+			if (!normalShutdown) {
+				// 启动失败时不应只留 Web 端口存活（页面可用、聊天全挂），直接结束进程便于发现和重启
+				System.err.println("Netty 服务未能启动，进程退出");
+				System.exit(1);
+			}
 		}
 	}
 

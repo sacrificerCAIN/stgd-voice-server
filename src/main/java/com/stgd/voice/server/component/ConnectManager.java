@@ -815,6 +815,11 @@ public class ConnectManager {
 		sendWsOne(sourceWsId, "{\"type\":\"system\",\"payload\":\"对方已下线\"}");
 	}
 
+	/** 获取所有在线的 TCP 连接（供按 IP 踢人等管理操作使用） */
+	public Collection<Channel> getAllTcpChannels() {
+		return channelGroup;
+	}
+
 	/** 获取所有在线的 WebSocket Channel（供系统日志 / dashboard 推送使用） */
 	public Collection<Channel> getAllWsChannels() {
 		return wsChannelMap.values();

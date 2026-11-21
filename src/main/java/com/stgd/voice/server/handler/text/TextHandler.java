@@ -9,26 +9,25 @@ import com.stgd.voice.service.publish.impl.strategy.factory.MessageStrategyFacto
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelId;
 import io.netty.channel.SimpleChannelInboundHandler;
-import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Autowired;
 
 
 /**
  * @author Hzzz
  */
-@Component
 public class TextHandler extends SimpleChannelInboundHandler<String> {
 
 	private final ConnectManager connectManager;
 
 	private final MessageStrategyFactory messageStrategyFactory;
 
-	@Autowired(required = false)
-	private IpBlacklistManager blacklistManager;
+	private final IpBlacklistManager blacklistManager;
 
-	public TextHandler(ConnectManager connectManager, MessageStrategyFactory messageStrategyFactory) {
+	public TextHandler(ConnectManager connectManager,
+					   MessageStrategyFactory messageStrategyFactory,
+					   IpBlacklistManager blacklistManager) {
 		this.connectManager = connectManager;
 		this.messageStrategyFactory = messageStrategyFactory;
+		this.blacklistManager = blacklistManager;
 	}
 
 	private boolean isBlacklisted(ChannelHandlerContext ctx) {

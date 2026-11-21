@@ -4,14 +4,21 @@ import com.stgd.voice.model.entity.Room;
 import com.stgd.voice.server.component.ConnectManager;
 import com.stgd.voice.server.component.IpBlacklistManager;
 import com.stgd.voice.util.JsonUtil;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpHeaderValues;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
+import io.netty.util.CharsetUtil;
 import lombok.Setter;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -37,20 +44,27 @@ public class ChatWsHandler extends SimpleChannelInboundHandler<TextWebSocketFram
         this.connectManager = connectManager;
     }
 
-    /** 由 ChatWsHandshaker 在协议升级之前调用，完成 wsId 注册。 */
-    public void setWsInfo(Channel ch, String wsId) {
+    /**
+     * 由 ChatWsHandshaker 在协议升级之前调用，完成 wsId 注册。
+     *
+     * @return true 表示注册成功，可以继续握手；false 表示已拒绝（HTTP 403），调用方不得继续升级协议
+     */
+    public boolean setWsInfo(Channel ch, String wsId) {
         if (blacklistManager != null && blacklistManager.isBlack(ch)) {
+            // 此刻连接仍是 HTTP（尚未升级为 WebSocket），只能回 HTTP 响应，写 WebSocket 帧在协议层面是非法的
             String ip = IpBlacklistManager.getChannelIp(ch);
-            Map<String, String> data = new HashMap<>();
-            data.put("type", "system");
-            data.put("payload", "IP " + (ip == null ? "未知IP" : ip) + " 已被加入黑名单");
-            String msg = JsonUtil.toJson(data);
-            ch.writeAndFlush(new TextWebSocketFrame(msg))
-                    .addListener(io.netty.channel.ChannelFutureListener.CLOSE);
-            return;
+            byte[] body = ("IP " + (ip == null ? "未知IP" : ip) + " 已被加入黑名单").getBytes(CharsetUtil.UTF_8);
+            DefaultFullHttpResponse resp = new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, HttpResponseStatus.FORBIDDEN, Unpooled.wrappedBuffer(body));
+            resp.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain; charset=UTF-8");
+            resp.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, body.length);
+            resp.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+            ch.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
+            return false;
         }
         this.wsId = wsId;
         connectManager.addWsChannel(wsId, ch);
+        return true;
     }
 
     @Override

@@ -19,6 +19,8 @@ public class StgdVoiceApplication implements CommandLineRunner {
 	}
 	@Override
 	public void run(String... args){
-		nettyMain.start();
+		// start() 会阻塞在 Netty 监听 Channel 的 closeFuture 上，必须放在独立线程执行，
+		// 否则 SpringApplication.run() 永不返回、ApplicationReadyEvent 永不发布。
+		new Thread(nettyMain::start, "netty-main").start();
 	}
 }

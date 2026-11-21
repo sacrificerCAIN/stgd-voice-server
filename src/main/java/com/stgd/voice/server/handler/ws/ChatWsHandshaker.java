@@ -38,7 +38,11 @@ public class ChatWsHandshaker extends ChannelInboundHandlerAdapter {
         if (msg instanceof FullHttpRequest && !registered) {
             registered = true;
             // wsId 即连接身份，只能由服务端生成，忽略客户端传入的任何 wsId
-            chatHandler.setWsInfo(ctx.channel(), UUID.randomUUID().toString());
+            if (!chatHandler.setWsInfo(ctx.channel(), UUID.randomUUID().toString())) {
+                // 已在 setWsInfo 中回复 HTTP 403：释放请求并终止，不再交给协议处理器升级
+                ((FullHttpRequest) msg).release();
+                return;
+            }
         }
         ctx.fireChannelRead(msg);
     }

@@ -197,27 +197,43 @@ public class IpBlacklistManager {
         return resp;
     }
 
-    /** 根据 IP 强制断开当前在线的所有用户连接（管理员添加黑名单后自动触发，也可作为独立接口使用） */
+    /** 根据 IP 强制断开当前在线的所有用户连接（TCP + WebSocket，管理员添加黑名单后自动触发，也可作为独立接口使用） */
     public int kickByIp(String ip) {
         String normIp = normalizeIp(ip);
         if (normIp == null || connectManager == null) return 0;
 
-        // 收集所有在线 wsId -> ip 的映射，然后关闭匹配的 Channel
-        Collection<Channel> channels = connectManager.getAllWsChannels();
-        if (channels == null || channels.isEmpty()) return 0;
-        List<String> kickList = new ArrayList<>();
-        for (Channel ch : channels) {
-            if (ch == null || !ch.isActive()) continue;
-            String curIp = normalizeIp(getChannelIp(ch));
-            if (normIp.equals(curIp)) {
-                String wsId = connectManager.getWsIdByChannel(ch);
-                if (wsId != null) kickList.add(wsId);
+        int kicked = 0;
+
+        // TCP：直接关闭 Channel，断开后由 TextHandler.channelInactive 统一清理房间与用户映射
+        Collection<Channel> tcpChannels = connectManager.getAllTcpChannels();
+        if (tcpChannels != null) {
+            for (Channel ch : tcpChannels) {
+                if (ch == null || !ch.isActive()) continue;
+                if (normIp.equals(normalizeIp(getChannelIp(ch)))) {
+                    ch.close();
+                    kicked++;
+                }
             }
         }
-        for (String wsId : kickList) {
-            connectManager.kickWsUser(wsId);
+
+        // WebSocket：通过 kickWsUser 触发下线通知、房间清理与日志
+        Collection<Channel> channels = connectManager.getAllWsChannels();
+        if (channels != null && !channels.isEmpty()) {
+            List<String> kickList = new ArrayList<>();
+            for (Channel ch : channels) {
+                if (ch == null || !ch.isActive()) continue;
+                String curIp = normalizeIp(getChannelIp(ch));
+                if (normIp.equals(curIp)) {
+                    String wsId = connectManager.getWsIdByChannel(ch);
+                    if (wsId != null) kickList.add(wsId);
+                }
+            }
+            for (String wsId : kickList) {
+                connectManager.kickWsUser(wsId);
+            }
+            kicked += kickList.size();
         }
-        return kickList.size();
+        return kicked;
     }
 
     // ===== 静态工具 =====
