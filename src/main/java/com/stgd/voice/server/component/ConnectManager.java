@@ -96,7 +96,6 @@ public class ConnectManager {
 		System.out.println("正在初始化房间...");
 		//加载所有房间到内存
 		List<Room> roomList = roomMapper.selectAll();
-		roomList.forEach(room -> room.setUserNum(0));
 		roomList.forEach(room -> roomMap.put(room.getId(), room));
 		System.out.println("房间初始化完成");
 	}
@@ -159,7 +158,6 @@ public class ConnectManager {
 
 	public void addRoom(Room room){
 		if (room == null) return;
-		if (room.getUserNum() == null) room.setUserNum(0);
 		roomMap.put(room.getId(), room);
 		broadcastRoomList();
 	}

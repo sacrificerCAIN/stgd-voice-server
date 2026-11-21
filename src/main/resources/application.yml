@@ -2,7 +2,6 @@ server:
   port: 8080
   address: 0.0.0.0  # 允许所有IP访问Web服务
   # 对外访问使用的 IP/域名；不配置时自动获取本机 IP（公网/NAT 环境建议显式配置）
-  # host: 121.43.144.108
   tcp-port: 6324
   ws-port: 8003
   udp-port: 6324

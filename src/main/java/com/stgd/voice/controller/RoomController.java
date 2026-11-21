@@ -79,7 +79,11 @@ public class RoomController {
 		Map<String, Object> response = new HashMap<>();
 		int result = roomMapper.updateById(room);
 		if (result == 1) {
-			room.setUserNum(connectManager.findRoomById(room.getId()).getUserNum());
+			Room cached = connectManager.findRoomById(room.getId());
+			if (cached != null) {
+				// 保留内存中的在线成员集合，避免更新房间信息后在线人数被清零
+				room.setUserChannelIdSet(cached.getUserChannelIdSet());
+			}
 			connectManager.addRoom(room);
 			connectManager.broadcastRoomList();
 			logPublisher.publish("room", null, room.getName(),

@@ -26,6 +26,15 @@ public class Room {
 	@TableField(exist = false)
 	private Set<String> userChannelIdSet = new CopyOnWriteArraySet<>();
 
+	/**
+	 * 在线人数直接由成员集合大小派生，避免 addUser/removeUser 中
+	 * contains→add→userNum++ 的竞态；CopyOnWriteArraySet.add 本身是原子去重。
+	 * userNum 字段仅保留以兼容原有 setUserNum 调用，不再作为人数来源。
+	 */
+	public Integer getUserNum() {
+		return userChannelIdSet == null ? 0 : userChannelIdSet.size();
+	}
+
 	public void addUser(ChannelId channelId){
 		if (channelId == null) {
 			return;
@@ -37,13 +46,8 @@ public class Room {
 		if (channelIdStr == null || channelIdStr.isEmpty()) {
 			return;
 		}
-		if (!this.userChannelIdSet.contains(channelIdStr)){
-			this.userChannelIdSet.add(channelIdStr);
-			if (userNum == null) {
-				userNum = 0;
-			}
-			userNum++;
-		}
+		// CopyOnWriteArraySet.add 内部加锁并去重，重复加入不会影响 size
+		this.userChannelIdSet.add(channelIdStr);
 	}
 
 	public void removeUser(ChannelId channelId){
@@ -57,13 +61,6 @@ public class Room {
 		if (channelIdStr == null || channelIdStr.isEmpty()) {
 			return;
 		}
-		if (this.userChannelIdSet.remove(channelIdStr)){
-			if (userNum == null) {
-				userNum = 0;
-			}
-			if (userNum > 0) {
-				userNum--;
-			}
-		}
+		this.userChannelIdSet.remove(channelIdStr);
 	}
 }
